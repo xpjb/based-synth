@@ -1,3 +1,4 @@
+use crate::effects::{Distortion, MultibandComp};
 use crate::params::Params;
 use crossbeam_queue::ArrayQueue;
 use std::f32::consts::PI;
@@ -319,6 +320,8 @@ pub struct Engine {
     lfo_phase: f32,
     sr: f32,
     tick_counter: u64,
+    dist: Distortion,
+    comp: MultibandComp,
 }
 
 impl Engine {
@@ -332,6 +335,8 @@ impl Engine {
             lfo_phase: 0.0,
             sr,
             tick_counter: 0,
+            dist: Distortion::new(),
+            comp: MultibandComp::new(),
         }
     }
 
@@ -408,6 +413,24 @@ impl Engine {
         let master = p.master_volume.load();
         let mdrive = p.master_drive.load();
 
+        // Pull effect params once per buffer; they don't change at audio rate.
+        let dist_on = p.dist_enabled.load() > 0.5;
+        let dist_type = p.dist_type.load().round() as i32;
+        let dist_drive = p.dist_drive.load();
+        let dist_tone = p.dist_tone.load();
+        let dist_mix = p.dist_mix.load();
+
+        let comp_on = p.comp_enabled.load() > 0.5;
+        let comp_xl = p.comp_xover_low.load();
+        let comp_xh = p.comp_xover_high.load();
+        let comp_thr = p.comp_threshold.load();
+        let comp_ratio = p.comp_ratio.load();
+        let comp_a = p.comp_attack.load();
+        let comp_r = p.comp_release.load();
+        let comp_gl = p.comp_gain_low.load();
+        let comp_gm = p.comp_gain_mid.load();
+        let comp_gh = p.comp_gain_high.load();
+
         for frame in buf.chunks_mut(channels.max(1)) {
             self.lfo_phase += lfo_rate / self.sr;
             if self.lfo_phase >= 1.0 {
@@ -420,6 +443,18 @@ impl Engine {
                 if v.active() {
                     sum += v.tick(p, lfo);
                 }
+            }
+
+            if dist_on {
+                sum = self
+                    .dist
+                    .process(sum, dist_drive, dist_type, dist_tone, dist_mix, self.sr);
+            }
+            if comp_on {
+                sum = self.comp.process(
+                    sum, comp_xl, comp_xh, comp_thr, comp_ratio, comp_a, comp_r, comp_gl,
+                    comp_gm, comp_gh, self.sr,
+                );
             }
 
             sum *= 1.0 + mdrive * 4.0;

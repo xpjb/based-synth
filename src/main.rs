@@ -1,3 +1,4 @@
+mod effects;
 mod params;
 mod performance;
 mod synth;
@@ -246,6 +247,45 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
                 fenv_r: 0.18,
                 master_volume: 0.55,
                 master_drive: 0.2,
+                ..Default::default()
+            },
+        ),
+        (
+            "crunch_lead",
+            Patch {
+                osc1_detune: -8.0,
+                osc2_detune: 8.0,
+                sub_level: 0.4,
+                filter_cutoff: 0.55,
+                filter_resonance: 0.3,
+                filter_env_amount: 0.4,
+                filter_drive: 0.3,
+                filter_keytrack: 0.4,
+                amp_a: 0.003,
+                amp_d: 0.3,
+                amp_s: 0.7,
+                amp_r: 0.2,
+                fenv_a: 0.003,
+                fenv_d: 0.2,
+                fenv_s: 0.2,
+                fenv_r: 0.2,
+                master_volume: 0.45,
+                master_drive: 0.1,
+                dist_enabled: 1.0,
+                dist_type: 0.0,
+                dist_drive: 0.55,
+                dist_tone: 0.55,
+                dist_mix: 0.85,
+                comp_enabled: 1.0,
+                comp_xover_low: 220.0,
+                comp_xover_high: 2200.0,
+                comp_threshold: -22.0,
+                comp_ratio: 5.0,
+                comp_attack: 0.004,
+                comp_release: 0.12,
+                comp_gain_low: 2.0,
+                comp_gain_mid: 0.0,
+                comp_gain_high: 1.5,
                 ..Default::default()
             },
         ),
