@@ -11,6 +11,7 @@ use performance::Performer;
 use std::path::PathBuf;
 use std::sync::Arc;
 use synth::{Engine, NoteEvent};
+use tokio::sync::broadcast;
 use web::AppState;
 
 #[tokio::main]
@@ -94,13 +95,15 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&patches_dir).ok();
     write_factory_patches(&patches_dir, &params)?;
 
-    let performer = Performer::new(params.clone(), queue.clone());
+    let (broadcast_tx, _) = broadcast::channel(128);
+    let performer = Performer::new(params.clone(), queue.clone(), broadcast_tx.clone());
     tokio::spawn(performer.clone().run_arp());
 
     let state = AppState {
         params: params.clone(),
         performer: performer.clone(),
         patches_dir,
+        broadcast: broadcast_tx,
     };
 
     let app = web::router(state);

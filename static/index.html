@@ -242,12 +242,25 @@
     z-index: 2;
     color: #aaa;
   }
+  /* "held" — dim glow for the arp pool / not-currently-sounding chord notes */
+  .key.held {
+    background: linear-gradient(180deg, #ffbf99 0%, #c97447 100%);
+    color: #fff;
+  }
+  .key.black.held {
+    background: linear-gradient(180deg, #c97447 0%, #5e2a14 100%);
+    color: #fff;
+  }
+  /* "active" — currently sounding; brighter, overrides held */
   .key.active {
     background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
     color: #fff;
+    box-shadow: 0 0 14px rgba(255,107,53,0.45) inset;
   }
   .key.black.active {
     background: linear-gradient(180deg, var(--hot) 0%, var(--accent) 100%);
+    color: #fff;
+    box-shadow: 0 0 10px rgba(255,209,102,0.6) inset;
   }
   ::selection { background: var(--accent-dim); }
 </style>
@@ -314,6 +327,8 @@ function connect() {
         opt.value = n; opt.textContent = n;
         sel.appendChild(opt);
       });
+    } else if (msg.type === 'notes') {
+      paintKeyboard(msg.sounding || [], msg.held || []);
     } else if (msg.type === 'error') {
       console.warn('[chonk]', msg.message);
     }
@@ -690,29 +705,47 @@ function makeKnob({ name, label, min, max, def, fmt, opts }) {
   return { el: root, setValue, get value() { return value; }, opts };
 }
 
-function setSelector(param, idx) {
-  sendParam(param, idx);
+function setSelector(param, idx, send=true) {
+  if (send) sendParam(param, idx);
   const btns = selectorRegistry[param];
   if (!btns) return;
   btns.forEach((b,i) => b.classList.toggle('on', i === idx));
 }
-function setToggle(param, state) {
-  sendParam(param, state ? 1 : 0);
+function setToggle(param, state, send=true) {
+  if (send) sendParam(param, state ? 1 : 0);
   const t = toggleRegistry[param];
+  if (!t) return;
   t.state = !!state;
   t.el.classList.toggle('on', !!state);
 }
 
 function applyPatchToUI(patch) {
+  // On any state load: clear local keyboard hold tracking and visuals — the server
+  // will repaint the keyboard via the `notes` broadcast as soon as state changes.
+  heldKeys.clear();
+  document.querySelectorAll('.key.active, .key.held').forEach(el => {
+    el.classList.remove('active', 'held');
+  });
+
   for (const name in patch) {
     if (knobRegistry[name]) {
       knobRegistry[name].setValue(patch[name], false);
     } else if (selectorRegistry[name]) {
-      setSelector(name, Math.round(patch[name]));
+      setSelector(name, Math.round(patch[name]), false);
     } else if (toggleRegistry[name]) {
-      setToggle(name, patch[name] > 0.5);
+      setToggle(name, patch[name] > 0.5, false);
     }
   }
+}
+
+function paintKeyboard(sounding, held) {
+  const soundingSet = new Set(sounding);
+  const heldSet = new Set(held);
+  document.querySelectorAll('.key').forEach(el => {
+    const n = parseInt(el.dataset.note, 10);
+    el.classList.toggle('active', soundingSet.has(n));
+    el.classList.toggle('held', heldSet.has(n) && !soundingSet.has(n));
+  });
 }
 
 // ---------- Patch I/O ----------
@@ -785,14 +818,12 @@ function attachKeyEvents(el, note) {
   let down = false;
   el.addEventListener('pointerdown', (e) => {
     down = true;
-    el.classList.add('active');
     noteOn(note, 0.85);
     el.setPointerCapture(e.pointerId);
   });
   const release = () => {
     if (!down) return;
     down = false;
-    el.classList.remove('active');
     noteOff(note);
   };
   el.addEventListener('pointerup', release);
@@ -824,10 +855,7 @@ document.addEventListener('keydown', (e) => {
   if (k in KBD_TO_OFFSET && !heldKeys.has(k)) {
     heldKeys.add(k);
     const note = 12 * (kbdOctave + 1) + KBD_TO_OFFSET[k];
-    if (note >= 0 && note <= 127) {
-      noteOn(note, 0.85);
-      flashKey(note, true);
-    }
+    if (note >= 0 && note <= 127) noteOn(note, 0.85);
   }
 });
 document.addEventListener('keyup', (e) => {
@@ -835,27 +863,16 @@ document.addEventListener('keyup', (e) => {
   if (heldKeys.has(k)) {
     heldKeys.delete(k);
     const note = 12 * (kbdOctave + 1) + KBD_TO_OFFSET[k];
-    if (note >= 0 && note <= 127) {
-      noteOff(note);
-      flashKey(note, false);
-    }
+    if (note >= 0 && note <= 127) noteOff(note);
   }
 });
 window.addEventListener('blur', () => {
   heldKeys.forEach(k => {
     const note = 12 * (kbdOctave + 1) + KBD_TO_OFFSET[k];
-    if (note >= 0 && note <= 127) {
-      noteOff(note);
-      flashKey(note, false);
-    }
+    if (note >= 0 && note <= 127) noteOff(note);
   });
   heldKeys.clear();
 });
-
-function flashKey(note, on) {
-  const el = document.querySelector(`.key[data-note="${note}"]`);
-  if (el) el.classList.toggle('active', on);
-}
 
 // ---------- Boot ----------
 buildUI();
