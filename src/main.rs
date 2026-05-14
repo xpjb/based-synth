@@ -1,4 +1,5 @@
 mod params;
+mod performance;
 mod synth;
 mod web;
 
@@ -6,6 +7,7 @@ use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_queue::ArrayQueue;
 use params::{Params, Patch};
+use performance::Performer;
 use std::path::PathBuf;
 use std::sync::Arc;
 use synth::{Engine, NoteEvent};
@@ -92,9 +94,12 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&patches_dir).ok();
     write_factory_patches(&patches_dir, &params)?;
 
+    let performer = Performer::new(params.clone(), queue.clone());
+    tokio::spawn(performer.clone().run_arp());
+
     let state = AppState {
         params: params.clone(),
-        queue: queue.clone(),
+        performer: performer.clone(),
         patches_dir,
     };
 
@@ -113,49 +118,29 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
         (
             "init",
             Patch {
-                osc1_wave: 0.0,
-                osc1_detune: 0.0,
                 osc1_level: 0.8,
-                osc2_wave: 0.0,
-                osc2_detune: 0.0,
                 osc2_level: 0.0,
-                osc2_octave: 0.0,
                 sub_level: 0.0,
-                noise_level: 0.0,
                 filter_cutoff: 0.5,
                 filter_resonance: 0.1,
                 filter_env_amount: 0.0,
                 filter_drive: 0.0,
                 filter_keytrack: 0.0,
-                amp_a: 0.005,
-                amp_d: 0.2,
                 amp_s: 0.8,
                 amp_r: 0.2,
-                fenv_a: 0.005,
-                fenv_d: 0.2,
                 fenv_s: 0.0,
                 fenv_r: 0.2,
-                lfo_rate: 2.0,
-                lfo_to_cutoff: 0.0,
-                lfo_to_pitch: 0.0,
                 master_volume: 0.5,
                 master_drive: 0.0,
-                glide: 0.0,
-                mono: 0.0,
+                ..Default::default()
             },
         ),
         (
             "fat_bass",
             Patch {
-                osc1_wave: 0.0,
                 osc1_detune: -9.0,
-                osc1_level: 0.7,
-                osc2_wave: 0.0,
                 osc2_detune: 9.0,
-                osc2_level: 0.7,
-                osc2_octave: 0.0,
                 sub_level: 0.8,
-                noise_level: 0.0,
                 filter_cutoff: 0.28,
                 filter_resonance: 0.45,
                 filter_env_amount: 0.55,
@@ -169,27 +154,21 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
                 fenv_d: 0.18,
                 fenv_s: 0.1,
                 fenv_r: 0.15,
-                lfo_rate: 2.0,
-                lfo_to_cutoff: 0.0,
-                lfo_to_pitch: 0.0,
                 master_volume: 0.6,
                 master_drive: 0.35,
-                glide: 0.0,
                 mono: 1.0,
+                ..Default::default()
             },
         ),
         (
             "acid_lead",
             Patch {
-                osc1_wave: 0.0,
                 osc1_detune: 0.0,
                 osc1_level: 1.0,
                 osc2_wave: 1.0,
                 osc2_detune: 0.0,
                 osc2_level: 0.0,
-                osc2_octave: 0.0,
                 sub_level: 0.0,
-                noise_level: 0.0,
                 filter_cutoff: 0.32,
                 filter_resonance: 0.82,
                 filter_env_amount: 0.65,
@@ -204,26 +183,21 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
                 fenv_s: 0.0,
                 fenv_r: 0.18,
                 lfo_rate: 4.0,
-                lfo_to_cutoff: 0.0,
-                lfo_to_pitch: 0.0,
                 master_volume: 0.55,
                 master_drive: 0.5,
                 glide: 0.06,
                 mono: 1.0,
+                ..Default::default()
             },
         ),
         (
             "super_pad",
             Patch {
-                osc1_wave: 0.0,
                 osc1_detune: -11.0,
                 osc1_level: 0.55,
-                osc2_wave: 0.0,
                 osc2_detune: 12.0,
                 osc2_level: 0.55,
-                osc2_octave: 0.0,
                 sub_level: 0.25,
-                noise_level: 0.0,
                 filter_cutoff: 0.55,
                 filter_resonance: 0.25,
                 filter_env_amount: 0.2,
@@ -239,25 +213,21 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
                 fenv_r: 1.0,
                 lfo_rate: 0.3,
                 lfo_to_cutoff: 0.15,
-                lfo_to_pitch: 0.0,
                 master_volume: 0.45,
                 master_drive: 0.1,
-                glide: 0.0,
-                mono: 0.0,
+                ..Default::default()
             },
         ),
         (
             "pluck",
             Patch {
-                osc1_wave: 0.0,
-                osc1_detune: 0.0,
                 osc1_level: 0.7,
+                osc1_detune: 0.0,
                 osc2_wave: 2.0,
                 osc2_detune: 0.0,
                 osc2_level: 0.4,
                 osc2_octave: 1.0,
                 sub_level: 0.3,
-                noise_level: 0.0,
                 filter_cutoff: 0.4,
                 filter_resonance: 0.4,
                 filter_env_amount: 0.55,
@@ -271,18 +241,43 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
                 fenv_d: 0.12,
                 fenv_s: 0.0,
                 fenv_r: 0.18,
-                lfo_rate: 2.0,
-                lfo_to_cutoff: 0.0,
-                lfo_to_pitch: 0.0,
                 master_volume: 0.55,
                 master_drive: 0.2,
-                glide: 0.0,
-                mono: 0.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "arp_house",
+            Patch {
+                osc1_detune: -5.0,
+                osc2_detune: 5.0,
+                sub_level: 0.3,
+                filter_cutoff: 0.45,
+                filter_resonance: 0.4,
+                filter_env_amount: 0.45,
+                filter_drive: 0.3,
+                filter_keytrack: 0.5,
+                amp_a: 0.002,
+                amp_d: 0.15,
+                amp_s: 0.0,
+                amp_r: 0.1,
+                fenv_a: 0.002,
+                fenv_d: 0.12,
+                fenv_s: 0.0,
+                fenv_r: 0.1,
+                master_volume: 0.5,
+                master_drive: 0.2,
+                chord_type: 3.0,    // Maj
+                arp_enabled: 1.0,
+                arp_pattern: 0.0,   // Up
+                arp_rate: 8.0,
+                arp_gate: 0.45,
+                arp_octaves: 2.0,
+                ..Default::default()
             },
         ),
     ];
 
-    let mut wrote_init = false;
     for (name, patch) in &factory {
         let path = dir.join(format!("{}.json", name));
         if !path.exists() {
@@ -290,13 +285,8 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
             std::fs::write(&path, json)?;
         }
         if *name == "fat_bass" {
-            // Set the running params to "fat_bass" as the welcome sound.
             params.apply_patch(patch);
-            wrote_init = true;
         }
-    }
-    if !wrote_init {
-        // fallback so we at least have something
     }
     Ok(())
 }

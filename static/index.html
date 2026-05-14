@@ -331,10 +331,14 @@ function panic() { send({ type: 'allOff' }); }
 // {name, label, min, max, default, fmt}
 const KNOB = (name, label, min, max, def, fmt) => ({ name, label, min, max, def, fmt });
 
+const WAVE_NAMES = ['SAW','SQR','TRI','SIN','NSE'];
+const CHORD_NAMES = ['Off','Oct','5th','Maj','Min','Sus2','Sus4','Maj7','Min7','Dom7','Dim','Aug','Add9','Min9'];
+const PATTERN_NAMES = ['Up','Down','UpDn','Rnd','Played'];
+
 const PANELS = [
   {
     title: 'OSC 1',
-    wave: { param: 'osc1_wave' },
+    selectors: [{ param: 'osc1_wave', names: WAVE_NAMES }],
     knobs: [
       KNOB('osc1_detune', 'Detune', -50, 50, -7, v => v.toFixed(0)+'c'),
       KNOB('osc1_level', 'Level', 0, 1, 0.7, v => v.toFixed(2)),
@@ -342,7 +346,7 @@ const PANELS = [
   },
   {
     title: 'OSC 2',
-    wave: { param: 'osc2_wave' },
+    selectors: [{ param: 'osc2_wave', names: WAVE_NAMES }],
     knobs: [
       KNOB('osc2_detune', 'Detune', -50, 50, 7, v => v.toFixed(0)+'c'),
       KNOB('osc2_level', 'Level', 0, 1, 0.7, v => v.toFixed(2)),
@@ -350,6 +354,21 @@ const PANELS = [
         const r = Math.round(v); return (r>=0?'+':'')+r;
       }, { step: 1 }),
     ],
+  },
+  {
+    title: 'CHORD',
+    selectors: [{ param: 'chord_type', names: CHORD_NAMES }],
+    knobs: [],
+  },
+  {
+    title: 'ARP',
+    selectors: [{ param: 'arp_pattern', names: PATTERN_NAMES }],
+    knobs: [
+      KNOB('arp_rate', 'Rate', 0.5, 30, 6.0, v => v.toFixed(1)+'Hz'),
+      KNOB('arp_gate', 'Gate', 0.05, 0.95, 0.5, v => v.toFixed(2)),
+      KNOB('arp_octaves', 'Oct', 1, 4, 1, v => Math.round(v).toString(), { step: 1 }),
+    ],
+    toggle: { param: 'arp_enabled', label: 'ARP ON' },
   },
   {
     title: 'MIX',
@@ -408,8 +427,6 @@ const PANELS = [
   },
 ];
 
-const WAVE_NAMES = ['SAW','SQR','TRI','SIN','NSE'];
-
 function fmtTime(v) {
   if (v < 0.01) return (v*1000).toFixed(1)+'ms';
   if (v < 1) return (v*1000).toFixed(0)+'ms';
@@ -434,7 +451,7 @@ function val2norm(k, v) {
 
 // ---------- Build UI ----------
 const knobRegistry = {};
-const waveRegistry = {};
+const selectorRegistry = {};
 const toggleRegistry = {};
 
 function buildUI() {
@@ -447,21 +464,21 @@ function buildUI() {
     title.textContent = panel.title;
     div.appendChild(title);
 
-    if (panel.wave) {
-      const waves = document.createElement('div');
-      waves.className = 'wave-buttons';
-      const buttons = [];
-      WAVE_NAMES.forEach((wn, i) => {
-        const b = document.createElement('button');
-        b.textContent = wn;
-        b.onclick = () => {
-          setWave(panel.wave.param, i);
-        };
-        waves.appendChild(b);
-        buttons.push(b);
-      });
-      waveRegistry[panel.wave.param] = buttons;
-      div.appendChild(waves);
+    if (panel.selectors) {
+      for (const sel of panel.selectors) {
+        const row = document.createElement('div');
+        row.className = 'wave-buttons';
+        const buttons = [];
+        sel.names.forEach((label, i) => {
+          const b = document.createElement('button');
+          b.textContent = label;
+          b.onclick = () => setSelector(sel.param, i);
+          row.appendChild(b);
+          buttons.push(b);
+        });
+        selectorRegistry[sel.param] = buttons;
+        div.appendChild(row);
+      }
     }
 
     const knobs = document.createElement('div');
@@ -512,9 +529,9 @@ function extractOpts(k) {
   // Re-walk PANELS and inject opts from the original definition sites (already lost).
   // Instead, we look up by name and reapply known exp flags.
   const expNames = new Set([
-    'amp_a','amp_d','amp_r','fenv_a','fenv_d','fenv_r','lfo_rate'
+    'amp_a','amp_d','amp_r','fenv_a','fenv_d','fenv_r','lfo_rate','arp_rate'
   ]);
-  const stepNames = { osc2_octave: 1 };
+  const stepNames = { osc2_octave: 1, arp_octaves: 1 };
   for (const panel of PANELS) {
     for (const k of panel.knobs) {
       k._opts = {};
@@ -673,9 +690,10 @@ function makeKnob({ name, label, min, max, def, fmt, opts }) {
   return { el: root, setValue, get value() { return value; }, opts };
 }
 
-function setWave(param, idx) {
+function setSelector(param, idx) {
   sendParam(param, idx);
-  const btns = waveRegistry[param];
+  const btns = selectorRegistry[param];
+  if (!btns) return;
   btns.forEach((b,i) => b.classList.toggle('on', i === idx));
 }
 function setToggle(param, state) {
@@ -689,9 +707,8 @@ function applyPatchToUI(patch) {
   for (const name in patch) {
     if (knobRegistry[name]) {
       knobRegistry[name].setValue(patch[name], false);
-    } else if (waveRegistry[name]) {
-      setWave(name, Math.round(patch[name]));
-      // setWave also sends; that's OK — server already has the value.
+    } else if (selectorRegistry[name]) {
+      setSelector(name, Math.round(patch[name]));
     } else if (toggleRegistry[name]) {
       setToggle(name, patch[name] > 0.5);
     }

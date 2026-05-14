@@ -1,5 +1,5 @@
 use crate::params::{Params, Patch};
-use crate::synth::NoteEvent;
+use crate::performance::Performer;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -9,7 +9,6 @@ use axum::{
     routing::get,
     Router,
 };
-use crossbeam_queue::ArrayQueue;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,7 +16,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct AppState {
     pub params: Arc<Params>,
-    pub queue: Arc<ArrayQueue<NoteEvent>>,
+    pub performer: Arc<Performer>,
     pub patches_dir: PathBuf,
 }
 
@@ -88,19 +87,23 @@ async fn handle_ws(mut ws: WebSocket, state: AppState) {
 fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
     match msg {
         ClientMsg::NoteOn { note, velocity } => {
-            let _ = state.queue.push(NoteEvent::On { note, velocity });
+            state.performer.note_on(note, velocity);
             ServerMsg::Ok
         }
         ClientMsg::NoteOff { note } => {
-            let _ = state.queue.push(NoteEvent::Off { note });
+            state.performer.note_off(note);
             ServerMsg::Ok
         }
         ClientMsg::AllOff => {
-            let _ = state.queue.push(NoteEvent::AllOff);
+            state.performer.all_off();
             ServerMsg::Ok
         }
         ClientMsg::Param { name, value } => {
             if state.params.set(&name, value) {
+                // Mode-altering params need a clean slate to avoid stuck notes.
+                if name == "arp_enabled" || name == "chord_type" {
+                    state.performer.all_off();
+                }
                 ServerMsg::Ok
             } else {
                 ServerMsg::Error {
@@ -115,6 +118,7 @@ fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                 Ok(content) => match serde_json::from_str::<Patch>(&content) {
                     Ok(patch) => {
                         state.params.apply_patch(&patch);
+                        state.performer.all_off();
                         ServerMsg::State { patch }
                     }
                     Err(e) => ServerMsg::Error {

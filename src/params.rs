@@ -51,7 +51,15 @@ macro_rules! define_params {
 
         #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
         pub struct Patch {
-            $(pub $name: f32,)*
+            $(#[serde(default)] pub $name: f32,)*
+        }
+
+        impl Default for Patch {
+            fn default() -> Self {
+                Self {
+                    $($name: $default,)*
+                }
+            }
         }
     };
 }
@@ -86,4 +94,10 @@ define_params! {
     master_drive: 0.2,
     glide: 0.0,
     mono: 0.0,
+    chord_type: 0.0,
+    arp_enabled: 0.0,
+    arp_pattern: 0.0,
+    arp_rate: 6.0,
+    arp_gate: 0.5,
+    arp_octaves: 1.0,
 }
