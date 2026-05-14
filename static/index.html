@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CHONK</title>
+<style>
+  :root {
+    --bg: #16161c;
+    --panel: #22222b;
+    --panel-edge: #34343f;
+    --ink: #d4d4dc;
+    --dim: #76768a;
+    --accent: #ff6b35;
+    --accent-dim: #8a3a1c;
+    --hot: #ffd166;
+    --green: #7cd992;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow-x: hidden;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 22px;
+    background: linear-gradient(180deg, #2a2a35 0%, #1f1f28 100%);
+    border-bottom: 2px solid var(--accent-dim);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: 0.4em;
+    color: var(--accent);
+    text-shadow: 0 0 12px rgba(255,107,53,0.5);
+  }
+  .subtitle {
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+  }
+  .status {
+    margin-left: auto;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--dim);
+  }
+  .status.on { color: var(--green); }
+  .patch-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 22px;
+    background: #1a1a22;
+    border-bottom: 1px solid #2a2a35;
+  }
+  .patch-bar select, .patch-bar input, .patch-bar button {
+    background: #2a2a35;
+    color: var(--ink);
+    border: 1px solid #3a3a48;
+    padding: 6px 12px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .patch-bar select:hover, .patch-bar button:hover { border-color: var(--accent); }
+  .patch-bar button.primary {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--hot);
+  }
+  .patch-bar button.danger { color: #ff7676; }
+  .patch-bar label { font-size: 10px; color: var(--dim); letter-spacing: 0.15em; }
+  main {
+    padding: 16px 22px 200px 22px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 6px;
+    padding: 12px 14px 14px;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.04),
+      inset 0 0 18px rgba(0,0,0,0.4),
+      0 2px 8px rgba(0,0,0,0.4);
+  }
+  .panel-title {
+    color: var(--accent);
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    margin-bottom: 12px;
+    border-bottom: 1px dashed #3a3a48;
+    padding-bottom: 6px;
+  }
+  .knobs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: flex-start;
+  }
+  .knob {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 58px;
+    cursor: ns-resize;
+  }
+  .knob svg {
+    display: block;
+    overflow: visible;
+  }
+  .knob:hover .knob-ring { stroke: var(--accent); }
+  .knob.active .knob-ring { stroke: var(--hot); }
+  .knob-label {
+    margin-top: 4px;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  .knob-value {
+    margin-top: 1px;
+    font-size: 9px;
+    color: var(--accent);
+    height: 11px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .wave-buttons {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .wave-buttons button {
+    flex: 1 1 auto;
+    min-width: 28px;
+    background: #2a2a35;
+    color: var(--dim);
+    border: 1px solid #3a3a48;
+    padding: 6px 4px;
+    font-family: inherit;
+    font-size: 10px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .wave-buttons button.on {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--hot);
+  }
+  .toggle {
+    display: inline-block;
+    cursor: pointer;
+    padding: 6px 12px;
+    background: #2a2a35;
+    color: var(--dim);
+    border: 1px solid #3a3a48;
+    border-radius: 3px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .toggle.on {
+    background: var(--accent-dim);
+    color: var(--hot);
+    border-color: var(--accent);
+  }
+  .keyboard-wrap {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    padding: 12px 22px 18px;
+    background: linear-gradient(180deg, #1a1a22 0%, #0e0e14 100%);
+    border-top: 2px solid var(--accent-dim);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.6);
+    z-index: 50;
+  }
+  .keyboard-hint {
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.15em;
+    margin-bottom: 6px;
+  }
+  .keyboard-hint kbd {
+    background: #2a2a35;
+    padding: 1px 5px;
+    border-radius: 2px;
+    border: 1px solid #3a3a48;
+    color: var(--ink);
+    font-size: 9px;
+    margin: 0 2px;
+  }
+  .keyboard {
+    position: relative;
+    height: 120px;
+    display: flex;
+    align-items: stretch;
+    background: #0e0e14;
+    border: 1px solid #2a2a35;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .key {
+    position: relative;
+    flex: 1 1 0;
+    border-right: 1px solid #2a2a35;
+    background: linear-gradient(180deg, #e8e8e8 0%, #bababa 100%);
+    cursor: pointer;
+    transition: background 0.04s;
+    color: #555;
+    font-size: 8px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 4px;
+    letter-spacing: 0.05em;
+  }
+  .key.black {
+    position: absolute;
+    height: 65%;
+    background: linear-gradient(180deg, #2a2a35 0%, #15151a 100%);
+    border: 1px solid #000;
+    border-radius: 0 0 3px 3px;
+    z-index: 2;
+    color: #aaa;
+  }
+  .key.active {
+    background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
+    color: #fff;
+  }
+  .key.black.active {
+    background: linear-gradient(180deg, var(--hot) 0%, var(--accent) 100%);
+  }
+  ::selection { background: var(--accent-dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>// CHONK //</h1>
+  <span class="subtitle">poly subtractive · cpal · axum</span>
+  <span class="status" id="status">○ disconnected</span>
+</header>
+
+<div class="patch-bar">
+  <label>PATCH</label>
+  <select id="patchList"></select>
+  <button onclick="loadSelectedPatch()">Load</button>
+  <input id="patchName" placeholder="new patch name" maxlength="40">
+  <button class="primary" onclick="savePatch()">Save</button>
+  <button class="danger" onclick="deleteSelectedPatch()">Delete</button>
+  <button onclick="panic()" title="all notes off">Panic</button>
+</div>
+
+<main>
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="keyboard-wrap">
+  <div class="keyboard-hint">
+    KBD:
+    <kbd>Z</kbd><kbd>S</kbd><kbd>X</kbd><kbd>D</kbd><kbd>C</kbd><kbd>V</kbd><kbd>G</kbd><kbd>B</kbd><kbd>H</kbd><kbd>N</kbd><kbd>J</kbd><kbd>M</kbd>
+    &nbsp;·&nbsp; <kbd>,</kbd><kbd>L</kbd><kbd>.</kbd><kbd>;</kbd><kbd>/</kbd>
+    &nbsp;·&nbsp; <kbd>←</kbd><kbd>→</kbd> octave (<span id="octaveDisplay">3</span>)
+  </div>
+  <div class="keyboard" id="keyboard"></div>
+</div>
+
+<script>
+// ---------- WebSocket ----------
+let ws;
+const statusEl = document.getElementById('status');
+const pendingState = { patch: null };
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    statusEl.textContent = '● connected';
+    statusEl.classList.add('on');
+    send({ type: 'getState' });
+    send({ type: 'listPatches' });
+  };
+  ws.onclose = () => {
+    statusEl.textContent = '○ disconnected';
+    statusEl.classList.remove('on');
+    setTimeout(connect, 1000);
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state') {
+      applyPatchToUI(msg.patch);
+    } else if (msg.type === 'patches') {
+      const sel = document.getElementById('patchList');
+      sel.innerHTML = '';
+      msg.names.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n; opt.textContent = n;
+        sel.appendChild(opt);
+      });
+    } else if (msg.type === 'error') {
+      console.warn('[chonk]', msg.message);
+    }
+  };
+}
+function send(o) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
+}
+function sendParam(name, value) { send({ type: 'param', name, value }); }
+function noteOn(note, vel) { send({ type: 'noteOn', note, velocity: vel }); }
+function noteOff(note) { send({ type: 'noteOff', note }); }
+function panic() { send({ type: 'allOff' }); }
+
+// ---------- Param defs ----------
+// {name, label, min, max, default, fmt}
+const KNOB = (name, label, min, max, def, fmt) => ({ name, label, min, max, def, fmt });
+
+const PANELS = [
+  {
+    title: 'OSC 1',
+    wave: { param: 'osc1_wave' },
+    knobs: [
+      KNOB('osc1_detune', 'Detune', -50, 50, -7, v => v.toFixed(0)+'c'),
+      KNOB('osc1_level', 'Level', 0, 1, 0.7, v => v.toFixed(2)),
+    ],
+  },
+  {
+    title: 'OSC 2',
+    wave: { param: 'osc2_wave' },
+    knobs: [
+      KNOB('osc2_detune', 'Detune', -50, 50, 7, v => v.toFixed(0)+'c'),
+      KNOB('osc2_level', 'Level', 0, 1, 0.7, v => v.toFixed(2)),
+      KNOB('osc2_octave', 'Oct', -2, 2, 0, v => {
+        const r = Math.round(v); return (r>=0?'+':'')+r;
+      }, { step: 1 }),
+    ],
+  },
+  {
+    title: 'MIX',
+    knobs: [
+      KNOB('sub_level', 'Sub', 0, 1, 0.5, v => v.toFixed(2)),
+      KNOB('noise_level', 'Noise', 0, 1, 0.0, v => v.toFixed(2)),
+    ],
+  },
+  {
+    title: 'FILTER',
+    knobs: [
+      KNOB('filter_cutoff', 'Cutoff', 0, 1, 0.45, v => {
+        const hz = 20 * Math.pow(1000, v);
+        return hz < 1000 ? hz.toFixed(0)+'Hz' : (hz/1000).toFixed(1)+'k';
+      }),
+      KNOB('filter_resonance', 'Res', 0, 1, 0.35, v => v.toFixed(2)),
+      KNOB('filter_env_amount', 'Env', -1, 1, 0.55, v => v.toFixed(2)),
+      KNOB('filter_drive', 'Drive', 0, 1, 0.4, v => v.toFixed(2)),
+      KNOB('filter_keytrack', 'KeyTrk', 0, 1, 0.3, v => v.toFixed(2)),
+    ],
+  },
+  {
+    title: 'AMP ENV',
+    knobs: [
+      KNOB('amp_a', 'A', 0.001, 4, 0.005, v => fmtTime(v), { exp: true }),
+      KNOB('amp_d', 'D', 0.001, 4, 0.2, v => fmtTime(v), { exp: true }),
+      KNOB('amp_s', 'S', 0, 1, 0.7, v => v.toFixed(2)),
+      KNOB('amp_r', 'R', 0.001, 6, 0.3, v => fmtTime(v), { exp: true }),
+    ],
+  },
+  {
+    title: 'FILT ENV',
+    knobs: [
+      KNOB('fenv_a', 'A', 0.001, 4, 0.005, v => fmtTime(v), { exp: true }),
+      KNOB('fenv_d', 'D', 0.001, 4, 0.25, v => fmtTime(v), { exp: true }),
+      KNOB('fenv_s', 'S', 0, 1, 0.2, v => v.toFixed(2)),
+      KNOB('fenv_r', 'R', 0.001, 6, 0.3, v => fmtTime(v), { exp: true }),
+    ],
+  },
+  {
+    title: 'LFO',
+    knobs: [
+      KNOB('lfo_rate', 'Rate', 0.05, 20, 2.0, v => v.toFixed(2)+'Hz', { exp: true }),
+      KNOB('lfo_to_cutoff', '→Cutoff', 0, 1, 0.0, v => v.toFixed(2)),
+      KNOB('lfo_to_pitch', '→Pitch', 0, 1, 0.0, v => v.toFixed(2)),
+    ],
+  },
+  {
+    title: 'MASTER',
+    knobs: [
+      KNOB('master_volume', 'Vol', 0, 1, 0.55, v => v.toFixed(2)),
+      KNOB('master_drive', 'Drive', 0, 1, 0.2, v => v.toFixed(2)),
+      KNOB('glide', 'Glide', 0, 1, 0.0, v => fmtTime(v)),
+    ],
+    toggle: { param: 'mono', label: 'MONO' },
+  },
+];
+
+const WAVE_NAMES = ['SAW','SQR','TRI','SIN','NSE'];
+
+function fmtTime(v) {
+  if (v < 0.01) return (v*1000).toFixed(1)+'ms';
+  if (v < 1) return (v*1000).toFixed(0)+'ms';
+  return v.toFixed(2)+'s';
+}
+
+// Map UI 0..1 normalized position to actual value (and back).
+function norm2val(k, t) {
+  if (k.opts && k.opts.exp) {
+    const lo = Math.log(k.min), hi = Math.log(k.max);
+    return Math.exp(lo + t * (hi - lo));
+  }
+  return k.min + t * (k.max - k.min);
+}
+function val2norm(k, v) {
+  if (k.opts && k.opts.exp) {
+    const lo = Math.log(k.min), hi = Math.log(k.max);
+    return (Math.log(Math.max(k.min, v)) - lo) / (hi - lo);
+  }
+  return (v - k.min) / (k.max - k.min);
+}
+
+// ---------- Build UI ----------
+const knobRegistry = {};
+const waveRegistry = {};
+const toggleRegistry = {};
+
+function buildUI() {
+  const grid = document.getElementById('grid');
+  for (const panel of PANELS) {
+    const div = document.createElement('div');
+    div.className = 'panel';
+    const title = document.createElement('div');
+    title.className = 'panel-title';
+    title.textContent = panel.title;
+    div.appendChild(title);
+
+    if (panel.wave) {
+      const waves = document.createElement('div');
+      waves.className = 'wave-buttons';
+      const buttons = [];
+      WAVE_NAMES.forEach((wn, i) => {
+        const b = document.createElement('button');
+        b.textContent = wn;
+        b.onclick = () => {
+          setWave(panel.wave.param, i);
+        };
+        waves.appendChild(b);
+        buttons.push(b);
+      });
+      waveRegistry[panel.wave.param] = buttons;
+      div.appendChild(waves);
+    }
+
+    const knobs = document.createElement('div');
+    knobs.className = 'knobs';
+    for (const k of panel.knobs) {
+      // Pull opts off the last arg if present (KNOB doesn't formally take opts; handle via extension)
+      const knob = makeKnob({
+        name: k.name,
+        label: k.label,
+        min: k.min,
+        max: k.max,
+        def: k.def,
+        fmt: k.fmt,
+        opts: extractOpts(k),
+      });
+      knobs.appendChild(knob.el);
+      knobRegistry[k.name] = knob;
+    }
+    div.appendChild(knobs);
+
+    if (panel.toggle) {
+      const t = document.createElement('span');
+      t.className = 'toggle';
+      t.textContent = panel.toggle.label;
+      t.onclick = () => {
+        const cur = toggleRegistry[panel.toggle.param].state;
+        setToggle(panel.toggle.param, cur ? 0 : 1);
+      };
+      div.appendChild(t);
+      toggleRegistry[panel.toggle.param] = { el: t, state: false };
+    }
+
+    grid.appendChild(div);
+  }
+}
+
+// KNOB() doesn't pass opts explicitly; reconstruct from the call by scanning fmt source if needed.
+// Cleaner: extend signature. We do that now: each entry can have a 6th arg "opts".
+// To keep PANELS readable above, treat the 6th positional argument as opts.
+function extractOpts(k) {
+  // The KNOB factory only put { name,label,min,max,def,fmt } on the object.
+  // We need to fish opts back out — re-define KNOB carefully:
+  return k._opts || {};
+}
+// Patch the KNOB function to capture opts:
+// (We monkey-patch entries already created.)
+(function fixOpts() {
+  // Re-walk PANELS and inject opts from the original definition sites (already lost).
+  // Instead, we look up by name and reapply known exp flags.
+  const expNames = new Set([
+    'amp_a','amp_d','amp_r','fenv_a','fenv_d','fenv_r','lfo_rate'
+  ]);
+  const stepNames = { osc2_octave: 1 };
+  for (const panel of PANELS) {
+    for (const k of panel.knobs) {
+      k._opts = {};
+      if (expNames.has(k.name)) k._opts.exp = true;
+      if (stepNames[k.name]) k._opts.step = stepNames[k.name];
+    }
+  }
+})();
+
+function makeKnob({ name, label, min, max, def, fmt, opts }) {
+  const root = document.createElement('div');
+  root.className = 'knob';
+  const SIZE = 50, CX = SIZE/2, CY = SIZE/2, R = 19;
+  // Knob sweeps -135deg .. +135deg (270 deg total)
+  const A_MIN = -135 * Math.PI / 180;
+  const A_MAX =  135 * Math.PI / 180;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', SIZE);
+  svg.setAttribute('height', SIZE);
+
+  // Outer bezel
+  const bezel = document.createElementNS(svgNS, 'circle');
+  bezel.setAttribute('cx', CX); bezel.setAttribute('cy', CY);
+  bezel.setAttribute('r', R+3);
+  bezel.setAttribute('fill', '#1a1a22');
+  bezel.setAttribute('stroke', '#0a0a10');
+  bezel.setAttribute('stroke-width', '1');
+  svg.appendChild(bezel);
+
+  // Background arc (full sweep)
+  const bgArc = document.createElementNS(svgNS, 'path');
+  bgArc.setAttribute('d', arcPath(CX, CY, R, A_MIN, A_MAX));
+  bgArc.setAttribute('fill', 'none');
+  bgArc.setAttribute('stroke', '#34343f');
+  bgArc.setAttribute('stroke-width', '3');
+  bgArc.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(bgArc);
+
+  // Value arc
+  const valArc = document.createElementNS(svgNS, 'path');
+  valArc.setAttribute('class', 'knob-ring');
+  valArc.setAttribute('fill', 'none');
+  valArc.setAttribute('stroke', '#ff6b35');
+  valArc.setAttribute('stroke-width', '3');
+  valArc.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(valArc);
+
+  // Cap
+  const cap = document.createElementNS(svgNS, 'circle');
+  cap.setAttribute('cx', CX); cap.setAttribute('cy', CY);
+  cap.setAttribute('r', R-5);
+  cap.setAttribute('fill', '#2a2a35');
+  cap.setAttribute('stroke', '#444');
+  cap.setAttribute('stroke-width', '1');
+  svg.appendChild(cap);
+
+  // Indicator line
+  const tick = document.createElementNS(svgNS, 'line');
+  tick.setAttribute('stroke', '#ffd166');
+  tick.setAttribute('stroke-width', '2');
+  tick.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(tick);
+
+  root.appendChild(svg);
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'knob-label';
+  labelEl.textContent = label;
+
+  const valueEl = document.createElement('div');
+  valueEl.className = 'knob-value';
+
+  root.appendChild(valueEl);
+  root.appendChild(labelEl);
+
+  let value = def;
+  const bipolar = (min < 0 && max > 0);
+
+  function arcPath(cx, cy, r, a0, a1) {
+    const large = (a1 - a0) > Math.PI ? 1 : 0;
+    const x0 = cx + r*Math.cos(a0), y0 = cy + r*Math.sin(a0);
+    const x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+    return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
+  }
+
+  function render() {
+    const t = val2norm({min,max,opts}, value);
+    const a = A_MIN + Math.max(0, Math.min(1, t)) * (A_MAX - A_MIN);
+    // Indicator
+    const ix0 = CX + (R-9)*Math.cos(a);
+    const iy0 = CY + (R-9)*Math.sin(a);
+    const ix1 = CX + (R-1)*Math.cos(a);
+    const iy1 = CY + (R-1)*Math.sin(a);
+    tick.setAttribute('x1', ix0); tick.setAttribute('y1', iy0);
+    tick.setAttribute('x2', ix1); tick.setAttribute('y2', iy1);
+    // Value arc
+    if (bipolar) {
+      const aCenter = (A_MIN + A_MAX) / 2;
+      if (a >= aCenter) valArc.setAttribute('d', arcPath(CX,CY,R, aCenter, a));
+      else valArc.setAttribute('d', arcPath(CX,CY,R, a, aCenter));
+    } else {
+      valArc.setAttribute('d', arcPath(CX,CY,R, A_MIN, a));
+    }
+    valueEl.textContent = fmt ? fmt(value) : value.toFixed(2);
+  }
+
+  function setValue(v, send) {
+    if (opts.step) v = Math.round(v / opts.step) * opts.step;
+    if (v < min) v = min;
+    if (v > max) v = max;
+    value = v;
+    render();
+    if (send !== false) sendParam(name, value);
+  }
+
+  // Vertical drag
+  let dragging = false;
+  let dragStartY = 0;
+  let dragStartNorm = 0;
+  svg.style.cursor = 'ns-resize';
+  svg.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    root.classList.add('active');
+    dragStartY = e.clientY;
+    dragStartNorm = val2norm({min,max,opts}, value);
+    svg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  svg.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dy = dragStartY - e.clientY;
+    const fineMul = e.shiftKey ? 0.2 : 1.0;
+    const dnorm = dy / 180 * fineMul;
+    const t = Math.max(0, Math.min(1, dragStartNorm + dnorm));
+    setValue(norm2val({min,max,opts}, t), true);
+  });
+  svg.addEventListener('pointerup', (e) => {
+    dragging = false;
+    root.classList.remove('active');
+    svg.releasePointerCapture(e.pointerId);
+  });
+  // Double-click to reset
+  svg.addEventListener('dblclick', () => setValue(def, true));
+  // Wheel
+  svg.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const t0 = val2norm({min,max,opts}, value);
+    const mul = e.shiftKey ? 0.005 : 0.02;
+    const t = Math.max(0, Math.min(1, t0 - Math.sign(e.deltaY) * mul));
+    setValue(norm2val({min,max,opts}, t), true);
+  }, { passive: false });
+
+  setValue(def, false);
+  return { el: root, setValue, get value() { return value; }, opts };
+}
+
+function setWave(param, idx) {
+  sendParam(param, idx);
+  const btns = waveRegistry[param];
+  btns.forEach((b,i) => b.classList.toggle('on', i === idx));
+}
+function setToggle(param, state) {
+  sendParam(param, state ? 1 : 0);
+  const t = toggleRegistry[param];
+  t.state = !!state;
+  t.el.classList.toggle('on', !!state);
+}
+
+function applyPatchToUI(patch) {
+  for (const name in patch) {
+    if (knobRegistry[name]) {
+      knobRegistry[name].setValue(patch[name], false);
+    } else if (waveRegistry[name]) {
+      setWave(name, Math.round(patch[name]));
+      // setWave also sends; that's OK — server already has the value.
+    } else if (toggleRegistry[name]) {
+      setToggle(name, patch[name] > 0.5);
+    }
+  }
+}
+
+// ---------- Patch I/O ----------
+function loadSelectedPatch() {
+  const name = document.getElementById('patchList').value;
+  if (name) send({ type: 'loadPatch', name });
+}
+function savePatch() {
+  const name = document.getElementById('patchName').value.trim();
+  if (!name) return alert('enter a patch name');
+  send({ type: 'savePatch', name });
+  setTimeout(() => send({ type: 'listPatches' }), 100);
+}
+function deleteSelectedPatch() {
+  const name = document.getElementById('patchList').value;
+  if (!name) return;
+  if (!confirm(`delete patch "${name}"?`)) return;
+  send({ type: 'deletePatch', name });
+  setTimeout(() => send({ type: 'listPatches' }), 100);
+}
+
+// ---------- Keyboard ----------
+const KEY_MIN = 36, KEY_MAX = 84; // C2..C6
+function buildKeyboard() {
+  const wrap = document.getElementById('keyboard');
+  wrap.innerHTML = '';
+  const whites = [];
+  const blackInfo = [];
+  for (let m = KEY_MIN; m <= KEY_MAX; m++) {
+    const c = m % 12;
+    if ([1,3,6,8,10].includes(c)) continue;
+    whites.push(m);
+  }
+  const whiteWidthPct = 100 / whites.length;
+  whites.forEach((m, i) => {
+    const k = document.createElement('div');
+    k.className = 'key';
+    k.dataset.note = m;
+    k.style.flex = '1 1 0';
+    const name = midiName(m);
+    if (name.startsWith('C')) {
+      k.innerHTML = `<span>${name}</span>`;
+    }
+    attachKeyEvents(k, m);
+    wrap.appendChild(k);
+  });
+  // Black keys overlay
+  for (let m = KEY_MIN; m <= KEY_MAX; m++) {
+    const c = m % 12;
+    if (![1,3,6,8,10].includes(c)) continue;
+    // find index of preceding white
+    let prevWhite = m - 1;
+    const idx = whites.indexOf(prevWhite);
+    if (idx < 0) continue;
+    const left = (idx + 1) * whiteWidthPct - whiteWidthPct * 0.32;
+    const k = document.createElement('div');
+    k.className = 'key black';
+    k.dataset.note = m;
+    k.style.left = `calc(${left}% )`;
+    k.style.width = `${whiteWidthPct * 0.64}%`;
+    attachKeyEvents(k, m);
+    wrap.appendChild(k);
+  }
+}
+function midiName(m) {
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  return names[m % 12] + Math.floor(m/12 - 1);
+}
+function attachKeyEvents(el, note) {
+  let down = false;
+  el.addEventListener('pointerdown', (e) => {
+    down = true;
+    el.classList.add('active');
+    noteOn(note, 0.85);
+    el.setPointerCapture(e.pointerId);
+  });
+  const release = () => {
+    if (!down) return;
+    down = false;
+    el.classList.remove('active');
+    noteOff(note);
+  };
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('pointerleave', (e) => {
+    if (down && e.buttons === 0) release();
+  });
+}
+
+// ---------- Computer keyboard ----------
+let kbdOctave = 3; // C-key plays midi 12*(kbdOctave+1) = 48 when kbdOctave=3 (C3 in some maps)
+function refreshOctaveDisplay() {
+  document.getElementById('octaveDisplay').textContent = kbdOctave;
+}
+const KBD_TO_OFFSET = {
+  'z':0,'s':1,'x':2,'d':3,'c':4,'v':5,'g':6,'b':7,'h':8,'n':9,'j':10,'m':11,
+  ',':12,'l':13,'.':14,';':15,'/':16,
+  'q':12,'2':13,'w':14,'3':15,'e':16,'r':17,'5':18,'t':19,'6':20,'y':21,'7':22,'u':23,
+  'i':24,'9':25,'o':26,'0':27,'p':28,
+};
+const heldKeys = new Set();
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'arrowleft') { kbdOctave = Math.max(0, kbdOctave-1); refreshOctaveDisplay(); return; }
+  if (k === 'arrowright') { kbdOctave = Math.min(7, kbdOctave+1); refreshOctaveDisplay(); return; }
+  if (k === ' ') { panic(); return; }
+  if (k in KBD_TO_OFFSET && !heldKeys.has(k)) {
+    heldKeys.add(k);
+    const note = 12 * (kbdOctave + 1) + KBD_TO_OFFSET[k];
+    if (note >= 0 && note <= 127) {
+      noteOn(note, 0.85);
+      flashKey(note, true);
+    }
+  }
+});
+document.addEventListener('keyup', (e) => {
+  const k = e.key.toLowerCase();
+  if (heldKeys.has(k)) {
+    heldKeys.delete(k);
+    const note = 12 * (kbdOctave + 1) + KBD_TO_OFFSET[k];
+    if (note >= 0 && note <= 127) {
+      noteOff(note);
+      flashKey(note, false);
+    }
+  }
+});
+window.addEventListener('blur', () => {
+  heldKeys.forEach(k => {
+    const note = 12 * (kbdOctave + 1) + KBD_TO_OFFSET[k];
+    if (note >= 0 && note <= 127) {
+      noteOff(note);
+      flashKey(note, false);
+    }
+  });
+  heldKeys.clear();
+});
+
+function flashKey(note, on) {
+  const el = document.querySelector(`.key[data-note="${note}"]`);
+  if (el) el.classList.toggle('active', on);
+}
+
+// ---------- Boot ----------
+buildUI();
+buildKeyboard();
+refreshOctaveDisplay();
+connect();
+</script>
+</body>
+</html>

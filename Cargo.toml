@@ -1,0 +1,18 @@
+[package]
+name = "chonk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal = "0.15"
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+crossbeam-queue = "0.3"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
