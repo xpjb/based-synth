@@ -1,0 +1,25 @@
+[package]
+name = "chonk"
+version = "0.1.0"
+description = "CHONK synthesizer"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "chonk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6" }
+
+[dependencies]
+tauri = { version = "2.11" }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+cpal = "0.15"
+crossbeam-queue = "0.3"
+anyhow = "1"

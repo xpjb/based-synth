@@ -1,118 +1,144 @@
+mod commands;
 mod effects;
+mod ipc;
 mod params;
 mod performance;
 mod synth;
-mod web;
 
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_queue::ArrayQueue;
+use ipc::AppState;
 use params::{Params, Patch};
 use performance::Performer;
 use std::path::PathBuf;
 use std::sync::Arc;
 use synth::{Engine, NoteEvent};
+use tauri::{Emitter, Manager};
 use tokio::sync::broadcast;
-use web::AppState;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let params = Arc::new(Params::default());
-    let queue: Arc<ArrayQueue<NoteEvent>> = Arc::new(ArrayQueue::new(512));
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    if let Err(e) = run_inner() {
+        eprintln!("[chonk] fatal: {:#}", e);
+        std::process::exit(1);
+    }
+}
 
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| anyhow::anyhow!("No default audio output device"))?;
-    let supported = device.default_output_config()?;
-    let sample_format = supported.sample_format();
-    let stream_config: cpal::StreamConfig = supported.into();
-    let channels = stream_config.channels as usize;
-    let sample_rate = stream_config.sample_rate.0 as f32;
+fn run_inner() -> Result<()> {
+    tauri::Builder::default()
+        .setup(|app| {
+            let patches_dir = app.path().app_local_data_dir()?.join("patches");
+            std::fs::create_dir_all(&patches_dir)?;
 
-    println!(
-        "[chonk] audio device: {}",
-        device.name().unwrap_or_else(|_| "<unknown>".into())
-    );
-    println!(
-        "[chonk] {} Hz, {} channels, fmt {:?}",
-        sample_rate, channels, sample_format
-    );
+            let params = Arc::new(Params::default());
+            write_factory_patches(&patches_dir, &params)?;
 
-    let engine = Engine::new(sample_rate, params.clone(), queue.clone());
+            let queue: Arc<ArrayQueue<NoteEvent>> = Arc::new(ArrayQueue::new(512));
 
-    let err_fn = |err| eprintln!("[chonk] stream error: {}", err);
+            let host = cpal::default_host();
+            let device = host
+                .default_output_device()
+                .ok_or_else(|| anyhow::anyhow!("no default audio output device"))?;
+            let supported = device.default_output_config()?;
+            let sample_format = supported.sample_format();
+            let stream_config: cpal::StreamConfig = supported.into();
+            let channels = stream_config.channels as usize;
+            let sample_rate = stream_config.sample_rate.0 as f32;
 
-    let stream = match sample_format {
-        cpal::SampleFormat::F32 => {
-            let mut engine = engine;
-            device.build_output_stream(
-                &stream_config,
-                move |data: &mut [f32], _| engine.render(data, channels),
-                err_fn,
-                None,
-            )?
-        }
-        cpal::SampleFormat::I16 => {
-            let mut engine = engine;
-            let mut scratch: Vec<f32> = Vec::new();
-            device.build_output_stream(
-                &stream_config,
-                move |data: &mut [i16], _| {
-                    scratch.resize(data.len(), 0.0);
-                    engine.render(&mut scratch, channels);
-                    for (d, s) in data.iter_mut().zip(scratch.iter()) {
-                        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                        *d = v;
+            eprintln!(
+                "[chonk] audio device: {}",
+                device.name().unwrap_or_else(|_| "<unknown>".into())
+            );
+            eprintln!(
+                "[chonk] {} Hz, {} channels, fmt {:?}",
+                sample_rate, channels, sample_format
+            );
+
+            let engine = Engine::new(sample_rate, params.clone(), queue.clone());
+            let err_fn = |err| eprintln!("[chonk] stream error: {}", err);
+
+            let stream = match sample_format {
+                cpal::SampleFormat::F32 => {
+                    let mut engine = engine;
+                    device.build_output_stream(
+                        &stream_config,
+                        move |data: &mut [f32], _| engine.render(data, channels),
+                        err_fn,
+                        None,
+                    )?
+                }
+                cpal::SampleFormat::I16 => {
+                    let mut engine = engine;
+                    let mut scratch: Vec<f32> = Vec::new();
+                    device.build_output_stream(
+                        &stream_config,
+                        move |data: &mut [i16], _| {
+                            scratch.resize(data.len(), 0.0);
+                            engine.render(&mut scratch, channels);
+                            for (d, s) in data.iter_mut().zip(scratch.iter()) {
+                                let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                                *d = v;
+                            }
+                        },
+                        err_fn,
+                        None,
+                    )?
+                }
+                cpal::SampleFormat::U16 => {
+                    let mut engine = engine;
+                    let mut scratch: Vec<f32> = Vec::new();
+                    device.build_output_stream(
+                        &stream_config,
+                        move |data: &mut [u16], _| {
+                            scratch.resize(data.len(), 0.0);
+                            engine.render(&mut scratch, channels);
+                            for (d, s) in data.iter_mut().zip(scratch.iter()) {
+                                let n = (s.clamp(-1.0, 1.0) * 0.5 + 0.5) * u16::MAX as f32;
+                                *d = n as u16;
+                            }
+                        },
+                        err_fn,
+                        None,
+                    )?
+                }
+                other => return Err(anyhow::anyhow!("unsupported sample format: {:?}", other).into()),
+            };
+
+            stream.play()?;
+            std::mem::forget(stream);
+
+            let (broadcast_tx, _) = broadcast::channel(128);
+            let performer = Performer::new(params.clone(), queue.clone(), broadcast_tx.clone());
+            tauri::async_runtime::spawn(performer.clone().run_arp());
+
+            let app_handle = app.handle().clone();
+            let mut bridge_rx = broadcast_tx.subscribe();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match bridge_rx.recv().await {
+                        Ok(b) => {
+                            let _ = app_handle.emit("notes", &b);
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => break,
                     }
-                },
-                err_fn,
-                None,
-            )?
-        }
-        cpal::SampleFormat::U16 => {
-            let mut engine = engine;
-            let mut scratch: Vec<f32> = Vec::new();
-            device.build_output_stream(
-                &stream_config,
-                move |data: &mut [u16], _| {
-                    scratch.resize(data.len(), 0.0);
-                    engine.render(&mut scratch, channels);
-                    for (d, s) in data.iter_mut().zip(scratch.iter()) {
-                        let n = (s.clamp(-1.0, 1.0) * 0.5 + 0.5) * u16::MAX as f32;
-                        *d = n as u16;
-                    }
-                },
-                err_fn,
-                None,
-            )?
-        }
-        other => return Err(anyhow::anyhow!("unsupported sample format: {:?}", other)),
-    };
+                }
+            });
 
-    stream.play()?;
+            let state = AppState {
+                params,
+                performer,
+                patches_dir,
+                broadcast: broadcast_tx,
+            };
+            app.manage(Arc::new(state));
 
-    let patches_dir = PathBuf::from("patches");
-    std::fs::create_dir_all(&patches_dir).ok();
-    write_factory_patches(&patches_dir, &params)?;
-
-    let (broadcast_tx, _) = broadcast::channel(128);
-    let performer = Performer::new(params.clone(), queue.clone(), broadcast_tx.clone());
-    tokio::spawn(performer.clone().run_arp());
-
-    let state = AppState {
-        params: params.clone(),
-        performer: performer.clone(),
-        patches_dir,
-        broadcast: broadcast_tx,
-    };
-
-    let app = web::router(state);
-
-    let addr = "127.0.0.1:3030";
-    println!("[chonk] open http://{} to play", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![commands::dispatch])
+        .run(tauri::generate_context!())
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     Ok(())
 }
@@ -310,9 +336,9 @@ fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
                 fenv_r: 0.1,
                 master_volume: 0.5,
                 master_drive: 0.2,
-                chord_type: 3.0,    // Maj
+                chord_type: 3.0,
                 arp_enabled: 1.0,
-                arp_pattern: 0.0,   // Up
+                arp_pattern: 0.0,
                 arp_rate: 8.0,
                 arp_gate: 0.45,
                 arp_octaves: 2.0,

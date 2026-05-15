@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-dispatch"
+description = "Allows the UI to drive the synth engine via IPC."
+commands.allow = ["dispatch"]

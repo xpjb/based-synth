@@ -318,47 +318,49 @@
 </div>
 
 <script>
-// ---------- WebSocket ----------
-let ws;
+// ---------- Tauri IPC ----------
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+
 const statusEl = document.getElementById('status');
-const pendingState = { patch: null };
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => {
-    statusEl.textContent = '● connected';
-    statusEl.classList.add('on');
-    send({ type: 'getState' });
-    send({ type: 'listPatches' });
-  };
-  ws.onclose = () => {
-    statusEl.textContent = '○ disconnected';
-    statusEl.classList.remove('on');
-    setTimeout(connect, 1000);
-  };
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'state') {
-      applyPatchToUI(msg.patch);
-    } else if (msg.type === 'patches') {
-      const sel = document.getElementById('patchList');
-      sel.innerHTML = '';
-      msg.names.forEach(n => {
-        const opt = document.createElement('option');
-        opt.value = n; opt.textContent = n;
-        sel.appendChild(opt);
-      });
-    } else if (msg.type === 'notes') {
+  statusEl.textContent = '● connected';
+  statusEl.classList.add('on');
+  listen('notes', (e) => {
+    const msg = e.payload;
+    if (msg.type === 'notes') {
       lastSounding = msg.sounding || [];
       lastHeld = msg.held || [];
       paintKeyboard(lastSounding, lastHeld);
-    } else if (msg.type === 'error') {
-      console.warn('[chonk]', msg.message);
     }
-  };
+  }).catch(err => console.warn('[chonk] listen', err));
+  send({ type: 'getState' });
+  send({ type: 'listPatches' });
 }
+
+async function dispatchMsg(msg) {
+  return invoke('dispatch', { msg });
+}
+
+function handleServerMsg(msg) {
+  if (msg.type === 'state') {
+    applyPatchToUI(msg.patch);
+  } else if (msg.type === 'patches') {
+    const sel = document.getElementById('patchList');
+    sel.innerHTML = '';
+    msg.names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n; opt.textContent = n;
+      sel.appendChild(opt);
+    });
+  } else if (msg.type === 'error') {
+    console.warn('[chonk]', msg.message);
+  }
+}
+
 function send(o) {
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
+  void dispatchMsg(o).then(handleServerMsg).catch(e => console.warn('[chonk]', e));
 }
 function sendParam(name, value) { send({ type: 'param', name, value }); }
 function noteOn(note, vel) { send({ type: 'noteOn', note, velocity: vel }); }
@@ -805,18 +807,20 @@ function loadSelectedPatch() {
   const name = document.getElementById('patchList').value;
   if (name) send({ type: 'loadPatch', name });
 }
-function savePatch() {
+async function savePatch() {
   const name = document.getElementById('patchName').value.trim();
   if (!name) return alert('enter a patch name');
-  send({ type: 'savePatch', name });
-  setTimeout(() => send({ type: 'listPatches' }), 100);
+  await dispatchMsg({ type: 'savePatch', name }).then(handleServerMsg);
+  const list = await dispatchMsg({ type: 'listPatches' });
+  handleServerMsg(list);
 }
-function deleteSelectedPatch() {
+async function deleteSelectedPatch() {
   const name = document.getElementById('patchList').value;
   if (!name) return;
   if (!confirm(`delete patch "${name}"?`)) return;
-  send({ type: 'deletePatch', name });
-  setTimeout(() => send({ type: 'listPatches' }), 100);
+  await dispatchMsg({ type: 'deletePatch', name }).then(handleServerMsg);
+  const list = await dispatchMsg({ type: 'listPatches' });
+  handleServerMsg(list);
 }
 
 // ---------- Keyboard ----------

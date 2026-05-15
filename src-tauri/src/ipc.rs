@@ -1,14 +1,5 @@
 use crate::params::{Params, Patch};
 use crate::performance::{Broadcast, Performer};
-use axum::{
-    extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
-    },
-    response::{Html, IntoResponse},
-    routing::get,
-    Router,
-};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,12 +10,13 @@ pub struct AppState {
     pub params: Arc<Params>,
     pub performer: Arc<Performer>,
     pub patches_dir: PathBuf,
+    #[allow(dead_code)]
     pub broadcast: broadcast::Sender<Broadcast>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "camelCase")]
-enum ClientMsg {
+pub enum ClientMsg {
     NoteOn { note: u8, velocity: f32 },
     NoteOff { note: u8 },
     AllOff,
@@ -38,66 +30,14 @@ enum ClientMsg {
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-enum ServerMsg {
+pub enum ServerMsg {
     Patches { names: Vec<String> },
     State { patch: Patch },
     Ok,
     Error { message: String },
 }
 
-pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(index))
-        .route("/ws", get(ws_upgrade))
-        .with_state(state)
-}
-
-async fn index() -> Html<&'static str> {
-    Html(include_str!("../static/index.html"))
-}
-
-async fn ws_upgrade(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |s| handle_ws(s, state))
-}
-
-async fn handle_ws(mut ws: WebSocket, state: AppState) {
-    let mut sub = state.broadcast.subscribe();
-    loop {
-        tokio::select! {
-            incoming = ws.recv() => {
-                let Some(Ok(msg)) = incoming else { break; };
-                let text = match msg {
-                    Message::Text(t) => t,
-                    Message::Close(_) => break,
-                    _ => continue,
-                };
-                let response = match serde_json::from_str::<ClientMsg>(&text) {
-                    Ok(m) => handle_msg(m, &state),
-                    Err(e) => ServerMsg::Error {
-                        message: format!("Bad msg: {}", e),
-                    },
-                };
-                let Ok(json) = serde_json::to_string(&response) else { continue; };
-                if ws.send(Message::Text(json)).await.is_err() { break; }
-            }
-            pushed = sub.recv() => {
-                match pushed {
-                    Ok(b) => {
-                        let Ok(json) = serde_json::to_string(&b) else { continue; };
-                        if ws.send(Message::Text(json)).await.is_err() { break; }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(_)) => { /* skip */ }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        }
-    }
-}
-
-fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
+pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
     match msg {
         ClientMsg::NoteOn { note, velocity } => {
             state.performer.note_on(note, velocity);
@@ -118,20 +58,14 @@ fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                 };
             }
             let mut refresh = false;
-            // Mode-altering params need a clean slate to avoid stuck notes.
             if name == "arp_enabled" || name == "chord_type" {
                 state.performer.all_off();
             }
-            // Polyphony is required for chord notes to coexist — auto-disable mono.
             if name == "chord_type" && value > 0.5 && state.params.mono.load() > 0.5 {
                 state.params.mono.store(0.0);
                 refresh = true;
             }
-            // And refuse mono-on while a chord is engaged.
-            if name == "mono"
-                && value > 0.5
-                && state.params.chord_type.load() > 0.5
-            {
+            if name == "mono" && value > 0.5 && state.params.chord_type.load() > 0.5 {
                 state.params.mono.store(0.0);
                 refresh = true;
             }
@@ -149,7 +83,6 @@ fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
             match std::fs::read_to_string(&path) {
                 Ok(content) => match serde_json::from_str::<Patch>(&content) {
                     Ok(mut patch) => {
-                        // Enforce the chord/mono constraint at load time too.
                         if patch.chord_type > 0.5 {
                             patch.mono = 0.0;
                         }
