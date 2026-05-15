@@ -11,7 +11,7 @@ use crossbeam_queue::ArrayQueue;
 use ipc::AppState;
 use params::{Params, Patch};
 use performance::Performer;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use synth::{Engine, NoteEvent};
 use tauri::{Emitter, Manager};
@@ -28,8 +28,11 @@ pub fn run() {
 fn run_inner() -> Result<()> {
     tauri::Builder::default()
         .setup(|app| {
-            let patches_dir = app.path().app_local_data_dir()?.join("patches");
+            let patches_dir = std::env::current_dir()
+                .map_err(|e| anyhow::anyhow!("could not get working directory: {e}"))?
+                .join("patches");
             std::fs::create_dir_all(&patches_dir)?;
+            eprintln!("[chonk] patches dir: {}", patches_dir.display());
 
             let params = Arc::new(Params::default());
             write_factory_patches(&patches_dir, &params)?;
@@ -130,7 +133,6 @@ fn run_inner() -> Result<()> {
                 params,
                 performer,
                 patches_dir,
-                broadcast: broadcast_tx,
             };
             app.manage(Arc::new(state));
 
@@ -143,7 +145,7 @@ fn run_inner() -> Result<()> {
     Ok(())
 }
 
-fn write_factory_patches(dir: &PathBuf, params: &Arc<Params>) -> Result<()> {
+fn write_factory_patches(dir: &Path, params: &Arc<Params>) -> Result<()> {
     let factory: Vec<(&str, Patch)> = vec![
         (
             "init",

@@ -83,6 +83,19 @@
   }
   .patch-bar button.danger { color: #ff7676; }
   .patch-bar label { font-size: 10px; color: var(--dim); letter-spacing: 0.15em; }
+  .patch-select-wrap {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .patch-select-wrap select { min-width: 12em; }
+  .patch-select-wrap button {
+    padding: 6px 10px;
+    min-width: 32px;
+    font-size: 14px;
+    line-height: 1;
+    letter-spacing: 0;
+  }
   main {
     padding: 16px 22px 200px 22px;
   }
@@ -289,13 +302,17 @@
 <body>
 <header>
   <h1>// CHONK //</h1>
-  <span class="subtitle">poly subtractive · cpal · axum</span>
+  <span class="subtitle">poly subtractive · cpal · tauri</span>
   <span class="status" id="status">○ disconnected</span>
 </header>
 
 <div class="patch-bar">
   <label>PATCH</label>
-  <select id="patchList"></select>
+  <span class="patch-select-wrap">
+    <button type="button" onclick="patchPrev()" title="Previous patch" aria-label="Previous patch">‹</button>
+    <select id="patchList"></select>
+    <button type="button" onclick="patchNext()" title="Next patch" aria-label="Next patch">›</button>
+  </span>
   <button onclick="loadSelectedPatch()">Load</button>
   <input id="patchName" placeholder="new patch name" maxlength="40">
   <button class="primary" onclick="savePatch()">Save</button>
@@ -806,6 +823,22 @@ function paintKeyboard(sounding, held) {
 function loadSelectedPatch() {
   const name = document.getElementById('patchList').value;
   if (name) send({ type: 'loadPatch', name });
+}
+function patchPrev() {
+  const sel = document.getElementById('patchList');
+  const n = sel.options.length;
+  if (!n) return;
+  const i = sel.selectedIndex;
+  sel.selectedIndex = i <= 0 ? n - 1 : i - 1;
+  loadSelectedPatch();
+}
+function patchNext() {
+  const sel = document.getElementById('patchList');
+  const n = sel.options.length;
+  if (!n) return;
+  const i = sel.selectedIndex;
+  sel.selectedIndex = i < 0 || i >= n - 1 ? 0 : i + 1;
+  loadSelectedPatch();
 }
 async function savePatch() {
   const name = document.getElementById('patchName').value.trim();

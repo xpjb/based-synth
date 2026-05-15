@@ -1,17 +1,14 @@
 use crate::params::{Params, Patch};
-use crate::performance::{Broadcast, Performer};
+use crate::performance::Performer;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::broadcast;
 
 #[derive(Clone)]
 pub struct AppState {
     pub params: Arc<Params>,
     pub performer: Arc<Performer>,
     pub patches_dir: PathBuf,
-    #[allow(dead_code)]
-    pub broadcast: broadcast::Sender<Broadcast>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -148,7 +145,7 @@ fn sanitize(name: &str) -> String {
         .collect()
 }
 
-fn list_patches(dir: &PathBuf) -> Vec<String> {
+fn list_patches(dir: &Path) -> Vec<String> {
     let _ = std::fs::create_dir_all(dir);
     let mut names = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
