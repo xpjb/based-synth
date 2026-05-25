@@ -115,4 +115,6 @@ define_params! {
     comp_gain_low: 0.0,
     comp_gain_mid: 0.0,
     comp_gain_high: 0.0,
+    comp_upward_ratio: 1.0,
+    comp_upward_range: 12.0,
 }

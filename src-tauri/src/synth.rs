@@ -430,6 +430,8 @@ impl Engine {
         let comp_gl = p.comp_gain_low.load();
         let comp_gm = p.comp_gain_mid.load();
         let comp_gh = p.comp_gain_high.load();
+        let comp_ur = p.comp_upward_ratio.load();
+        let comp_urg = p.comp_upward_range.load();
 
         for frame in buf.chunks_mut(channels.max(1)) {
             self.lfo_phase += lfo_rate / self.sr;
@@ -452,8 +454,8 @@ impl Engine {
             }
             if comp_on {
                 sum = self.comp.process(
-                    sum, comp_xl, comp_xh, comp_thr, comp_ratio, comp_a, comp_r, comp_gl,
-                    comp_gm, comp_gh, self.sr,
+                    sum, comp_xl, comp_xh, comp_thr, comp_ratio, comp_ur, comp_urg, comp_a, comp_r,
+                    comp_gl, comp_gm, comp_gh, self.sr,
                 );
             }
 

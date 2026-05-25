@@ -139,6 +139,8 @@ impl CompBand {
         x: f32,
         threshold_db: f32,
         ratio: f32,
+        upward_ratio: f32,
+        upward_range_db: f32,
         attack: f32,
         release: f32,
         makeup_db: f32,
@@ -150,7 +152,8 @@ impl CompBand {
         let gr_db = if over > 0.0 {
             -over * (1.0 - 1.0 / ratio.max(1.0))
         } else {
-            0.0
+            let boost = -over * (1.0 - 1.0 / upward_ratio.max(1.0));
+            boost.min(upward_range_db.max(0.0))
         };
         x * db_to_lin(gr_db + makeup_db)
     }
@@ -188,6 +191,8 @@ impl MultibandComp {
         xover_high: f32,
         threshold_db: f32,
         ratio: f32,
+        upward_ratio: f32,
+        upward_range_db: f32,
         attack: f32,
         release: f32,
         gain_low_db: f32,
@@ -208,9 +213,9 @@ impl MultibandComp {
             .process(self.lp_mid_a.process(above_low, xh, sr), xh, sr);
         let high = above_low - mid;
 
-        let l = self.low.process(low, threshold_db, ratio, attack, release, gain_low_db, sr);
-        let m = self.mid.process(mid, threshold_db, ratio, attack, release, gain_mid_db, sr);
-        let h = self.high.process(high, threshold_db, ratio, attack, release, gain_high_db, sr);
+        let l = self.low.process(low, threshold_db, ratio, upward_ratio, upward_range_db, attack, release, gain_low_db, sr);
+        let m = self.mid.process(mid, threshold_db, ratio, upward_ratio, upward_range_db, attack, release, gain_mid_db, sr);
+        let h = self.high.process(high, threshold_db, ratio, upward_ratio, upward_range_db, attack, release, gain_high_db, sr);
 
         l + m + h
     }

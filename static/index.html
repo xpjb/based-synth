@@ -491,6 +491,8 @@ const PANELS = [
       KNOB('comp_xover_high', 'X-Hi', 1000, 6000, 2000, v => (v/1000).toFixed(1)+'k'),
       KNOB('comp_threshold', 'Thresh', -60, 0, -18, v => v.toFixed(0)+'dB'),
       KNOB('comp_ratio', 'Ratio', 1, 20, 4, v => v.toFixed(1)+':1'),
+      KNOB('comp_upward_ratio', 'Up Ratio', 1, 20, 1, v => v.toFixed(1)+':1'),
+      KNOB('comp_upward_range', 'Up Rng', 0, 24, 12, v => v.toFixed(0)+'dB'),
       KNOB('comp_attack', 'Atk', 0.0001, 0.2, 0.005, v => fmtTime(v)),
       KNOB('comp_release', 'Rel', 0.01, 1.0, 0.1, v => fmtTime(v)),
       KNOB('comp_gain_low', 'Lo dB', -12, 24, 0, v => (v>=0?'+':'')+v.toFixed(1)),
