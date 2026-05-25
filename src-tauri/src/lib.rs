@@ -1,5 +1,6 @@
 mod commands;
 mod effects;
+mod history;
 mod ipc;
 mod params;
 mod performance;
@@ -8,6 +9,7 @@ mod synth;
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_queue::ArrayQueue;
+use history::History;
 use ipc::AppState;
 use params::{Params, Patch};
 use performance::Performer;
@@ -129,10 +131,16 @@ fn run_inner() -> Result<()> {
                 }
             });
 
+            let history_dir = std::env::current_dir()
+                .map_err(|e| anyhow::anyhow!("could not get working directory: {e}"))?
+                .join("history");
+            let history = History::spawn(history_dir, params.to_patch());
+
             let state = AppState {
                 params,
                 performer,
                 patches_dir,
+                history,
             };
             app.manage(Arc::new(state));
 

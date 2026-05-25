@@ -1,3 +1,4 @@
+use crate::history::History;
 use crate::params::{Params, Patch};
 use crate::performance::Performer;
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ pub struct AppState {
     pub params: Arc<Params>,
     pub performer: Arc<Performer>,
     pub patches_dir: PathBuf,
+    pub history: History,
 }
 
 #[derive(Deserialize, Debug)]
@@ -38,10 +40,12 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
     match msg {
         ClientMsg::NoteOn { note, velocity } => {
             state.performer.note_on(note, velocity);
+            state.history.note_on(note, velocity);
             ServerMsg::Ok
         }
         ClientMsg::NoteOff { note } => {
             state.performer.note_off(note);
+            state.history.note_off(note);
             ServerMsg::Ok
         }
         ClientMsg::AllOff => {
@@ -54,6 +58,7 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                     message: format!("Unknown param: {}", name),
                 };
             }
+            state.history.param(&name, value);
             let mut refresh = false;
             if name == "arp_enabled" || name == "chord_type" {
                 state.performer.all_off();
@@ -85,6 +90,7 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                         }
                         state.params.apply_patch(&patch);
                         state.performer.all_off();
+                        state.history.patch_load(&safe, patch.clone());
                         ServerMsg::State { patch }
                     }
                     Err(e) => ServerMsg::Error {
@@ -108,7 +114,10 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
             let patch = state.params.to_patch();
             match serde_json::to_string_pretty(&patch) {
                 Ok(json) => match std::fs::write(&path, json) {
-                    Ok(_) => ServerMsg::Ok,
+                    Ok(_) => {
+                        state.history.patch_save(&safe, patch);
+                        ServerMsg::Ok
+                    }
                     Err(e) => ServerMsg::Error {
                         message: e.to_string(),
                     },
