@@ -22,12 +22,15 @@ pub struct History {
 }
 
 /// Messages sent from the IPC layer to the logger thread.
+/// The logger is a dumb sink: every state decision (when to mark dirty, what
+/// the current patch is) lives in ipc.rs / AppState. This thread just writes.
 enum LogMsg {
     NoteOn { note: u8, vel: f32 },
     NoteOff { note: u8 },
     Param { name: String, value: f32 },
     PatchLoad { name: String, patch: Patch },
     PatchSave { name: String, patch: Patch },
+    PatchDirty { base: Option<String> },
 }
 
 /// Wire-format event. Stays minimal and self-describing so a piano-roll
@@ -93,6 +96,9 @@ impl History {
     pub fn patch_save(&self, name: &str, patch: Patch) {
         let _ = self.tx.send(LogMsg::PatchSave { name: name.to_string(), patch });
     }
+    pub fn patch_dirty(&self, base: Option<&str>) {
+        let _ = self.tx.send(LogMsg::PatchDirty { base: base.map(|s| s.to_string()) });
+    }
 }
 
 fn logger_loop(rx: mpsc::Receiver<LogMsg>, file: File, wall_unix: u64, initial_patch: Patch) {
@@ -110,9 +116,8 @@ fn logger_loop(rx: mpsc::Receiver<LogMsg>, file: File, wall_unix: u64, initial_p
         },
     );
 
-    // State tracked on the logger thread.
-    let mut last_loaded: Option<String> = None;
-    let mut dirty: bool = false;
+    // Note id pairing is the only stateful concern that genuinely belongs on
+    // this thread — it's tied to the order in which note events arrive here.
     let mut next_id: u32 = 1;
     let mut active_notes: HashMap<u8, u32> = HashMap::new();
     let mut pending_params: HashMap<String, (f32, Instant)> = HashMap::new();
@@ -125,17 +130,6 @@ fn logger_loop(rx: mpsc::Receiver<LogMsg>, file: File, wall_unix: u64, initial_p
         };
         match rx.recv_timeout(timeout) {
             Ok(LogMsg::Param { name, value }) => {
-                // First mutation after a clean load: emit a dirty marker.
-                if !dirty {
-                    if let Some(base) = last_loaded.as_deref() {
-                        write_event(
-                            &mut writer,
-                            t_ms(start),
-                            LogEvent::PatchDirty { base: Some(base) },
-                        );
-                    }
-                    dirty = true;
-                }
                 pending_params.insert(name, (value, Instant::now()));
             }
             Ok(LogMsg::NoteOn { note, vel }) => {
@@ -169,8 +163,6 @@ fn logger_loop(rx: mpsc::Receiver<LogMsg>, file: File, wall_unix: u64, initial_p
                     t_ms(start),
                     LogEvent::PatchLoad { name: &name, patch: &patch },
                 );
-                last_loaded = Some(name);
-                dirty = false;
                 active_notes.clear(); // matches all_off() in ipc.rs
             }
             Ok(LogMsg::PatchSave { name, patch }) => {
@@ -180,8 +172,17 @@ fn logger_loop(rx: mpsc::Receiver<LogMsg>, file: File, wall_unix: u64, initial_p
                     t_ms(start),
                     LogEvent::PatchSave { name: &name, patch: &patch },
                 );
-                last_loaded = Some(name);
-                dirty = false;
+            }
+            Ok(LogMsg::PatchDirty { base }) => {
+                // ipc.rs decides when to send this — typically right before the
+                // first Param after a clean load. Flush pending so the marker
+                // lands before the param it foretold.
+                flush_all_pending(&mut writer, &mut pending_params, start);
+                write_event(
+                    &mut writer,
+                    t_ms(start),
+                    LogEvent::PatchDirty { base: base.as_deref() },
+                );
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {

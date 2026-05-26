@@ -10,11 +10,11 @@ use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_queue::ArrayQueue;
 use history::History;
-use ipc::AppState;
+use ipc::{AppState, PatchState};
 use params::{Params, Patch};
 use performance::Performer;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use synth::{Engine, NoteEvent};
 use tauri::{Emitter, Manager};
 use tokio::sync::broadcast;
@@ -141,6 +141,11 @@ fn run_inner() -> Result<()> {
                 performer,
                 patches_dir,
                 history,
+                // Matches the patch applied in write_factory_patches() below.
+                patch: Arc::new(Mutex::new(PatchState {
+                    name: Some("fat_bass".to_string()),
+                    dirty: false,
+                })),
             };
             app.manage(Arc::new(state));
 

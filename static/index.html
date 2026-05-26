@@ -297,6 +297,107 @@
     color: rgba(255,255,255,0.85);
   }
   ::selection { background: var(--accent-dim); }
+
+  /* ---------- Tab bar ---------- */
+  .tab-bar {
+    display: flex;
+    background: #14141a;
+    border-bottom: 1px solid var(--panel-edge);
+  }
+  .tab-bar button {
+    background: transparent;
+    color: var(--dim);
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 24px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .tab-bar button:hover { color: var(--ink); }
+  .tab-bar button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    text-shadow: 0 0 8px rgba(255,107,53,0.4);
+  }
+
+  /* ---------- Roll view ---------- */
+  #roll-view[hidden], #synth-view[hidden] { display: none !important; }
+  #roll-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 90px);
+  }
+  .roll-toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 14px;
+    background: #1a1a22;
+    border-bottom: 1px solid var(--panel-edge);
+    flex-wrap: wrap;
+  }
+  .roll-toolbar button, .roll-toolbar input[type="file"]::file-selector-button {
+    background: #2a2a35;
+    color: var(--ink);
+    border: 1px solid #3a3a48;
+    padding: 5px 11px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .roll-toolbar button:hover { border-color: var(--accent); }
+  .roll-toolbar button.on {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--hot);
+  }
+  .roll-toolbar button.rec.on {
+    background: #5a1a1a;
+    border-color: #ff6666;
+    color: #ffaaaa;
+  }
+  .roll-toolbar .sep { width: 1px; height: 18px; background: var(--panel-edge); margin: 0 4px; }
+  .roll-toolbar label { font-size: 10px; color: var(--dim); letter-spacing: 0.15em; }
+  .roll-toolbar input[type="number"] {
+    background: #2a2a35;
+    color: var(--ink);
+    border: 1px solid #3a3a48;
+    padding: 4px 6px;
+    width: 70px;
+    font-family: inherit;
+    font-size: 11px;
+    border-radius: 3px;
+  }
+  .roll-canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #0e0e14;
+  }
+  #rollCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    display: block;
+  }
+  .roll-hint {
+    position: absolute;
+    bottom: 6px;
+    right: 10px;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.12em;
+    pointer-events: none;
+    text-transform: uppercase;
+  }
 </style>
 </head>
 <body>
@@ -306,6 +407,12 @@
   <span class="status" id="status">○ disconnected</span>
 </header>
 
+<div class="tab-bar">
+  <button id="tabSynth" class="active" onclick="switchTab('synth')">Synth</button>
+  <button id="tabRoll" onclick="switchTab('roll')">Roll</button>
+</div>
+
+<div id="synth-view">
 <div class="patch-bar">
   <label>PATCH</label>
   <span class="patch-select-wrap">
@@ -332,6 +439,32 @@
     &nbsp;·&nbsp; <kbd>←</kbd><kbd>→</kbd> octave (<span id="octaveDisplay">3</span>)
   </div>
   <div class="keyboard" id="keyboard"></div>
+</div>
+</div><!-- /synth-view -->
+
+<div id="roll-view" hidden>
+  <div class="roll-toolbar">
+    <button id="rollPlay" onclick="rollTogglePlay()">▶ Play</button>
+    <button onclick="rollStop()">■ Stop</button>
+    <button onclick="rollClearLoop()">Clear Loop</button>
+    <button onclick="rollHome()" title="Home key">⇤ Home</button>
+    <button id="rollRec" class="rec" onclick="rollToggleRec()">● Rec</button>
+    <button onclick="rollUndo()" title="Ctrl+Z">↶ Undo</button>
+    <span class="sep"></span>
+    <label>BPM</label><input id="rollBpm" type="number" min="20" max="300" step="1" value="120" onchange="rollSetBpm(this.value)">
+    <label>Zoom</label><input id="rollZoom" type="number" min="0.02" max="2" step="0.02" value="0.2" onchange="rollSetZoom(this.value)">
+    <span class="sep"></span>
+    <button onclick="rollClear()">Clear</button>
+    <button onclick="rollQuantize()">Quantize 1/16</button>
+    <span class="sep"></span>
+    <button onclick="rollSave()">Save .jsonl</button>
+    <button onclick="document.getElementById('rollLoadInput').click()">Load .jsonl</button>
+    <input id="rollLoadInput" type="file" accept=".jsonl,.json,application/json" hidden onchange="rollLoad(event)">
+  </div>
+  <div class="roll-canvas-wrap" id="rollCanvasWrap">
+    <canvas id="rollCanvas"></canvas>
+    <div class="roll-hint">drag empty space: draw · click note: select · drag note: move · drag right edge: resize · del: delete · shift-click: multi · ctrl+scroll: zoom · scroll: pan</div>
+  </div>
 </div>
 
 <script>
@@ -371,6 +504,7 @@ function handleServerMsg(msg) {
       opt.value = n; opt.textContent = n;
       sel.appendChild(opt);
     });
+    if (msg.current) sel.value = msg.current;
   } else if (msg.type === 'error') {
     console.warn('[chonk]', msg.message);
   }
@@ -380,8 +514,18 @@ function send(o) {
   void dispatchMsg(o).then(handleServerMsg).catch(e => console.warn('[chonk]', e));
 }
 function sendParam(name, value) { send({ type: 'param', name, value }); }
-function noteOn(note, vel) { send({ type: 'noteOn', note, velocity: vel }); }
-function noteOff(note) { send({ type: 'noteOff', note }); }
+function noteOn(note, vel) {
+  if (window.rollState && rollState.recording && !rollState.playbackActive.has(note)) {
+    rollCaptureNoteOn(note, vel);
+  }
+  send({ type: 'noteOn', note, velocity: vel });
+}
+function noteOff(note) {
+  if (window.rollState && rollState.recording && !rollState.playbackActive.has(note)) {
+    rollCaptureNoteOff(note);
+  }
+  send({ type: 'noteOff', note });
+}
 function panic() { send({ type: 'allOff' }); }
 
 // ---------- Param defs ----------
@@ -989,6 +1133,8 @@ function shiftOctave(delta) {
 
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  // Never fire synth notes on modifier combos (Ctrl+Z, Ctrl+S, etc.).
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
   const k = e.key.toLowerCase();
   if (k === 'arrowleft') { shiftOctave(-1); return; }
@@ -1016,11 +1162,878 @@ window.addEventListener('blur', () => {
   heldKeys.clear();
 });
 
+// ---------- Tabs ----------
+function switchTab(name) {
+  document.getElementById('synth-view').hidden = (name !== 'synth');
+  document.getElementById('roll-view').hidden = (name !== 'roll');
+  document.getElementById('tabSynth').classList.toggle('active', name === 'synth');
+  document.getElementById('tabRoll').classList.toggle('active', name === 'roll');
+  if (name === 'roll') {
+    rollResize();
+    rollRender();
+  }
+}
+
+// ===================== ROLL =====================
+const ROLL_PITCH_LOW = 21;   // A0
+const ROLL_PITCH_HIGH = 108; // C8
+const ROLL_LABEL_W = 48;
+const ROLL_RULER_H = 34;
+const ROLL_RESIZE_EDGE = 6;   // px on right edge of note for resize hit-test
+const ROLL_LOOP_HANDLE = 8;   // px wide drag handles for loop region
+const ROLL_DRAG_THRESHOLD = 3; // px before a mousedown becomes a drag
+const ROLL_UNDO_LIMIT = 100;
+
+const rollState = {
+  notes: [],                  // {id, pitch, start, dur, vel, ch}
+  nextId: 1,
+  viewport: {
+    scrollX: 0,               // leftmost visible ms
+    scrollY: 0,               // pitch offset from top, fractional rows
+    pxPerMs: 0.2,             // zoom (also written to #rollZoom)
+    rowHeight: 16,
+  },
+  hoveredPitch: null,         // for row highlight
+  undo: [],                   // snapshot stack
+  auditionPitch: null,        // pitch currently sounded while drawing/moving
+  bpm: 120,
+  selection: new Set(),       // note ids
+  transport: {
+    playing: false,
+    cursorMs: 0,
+    startWall: 0,             // performance.now() when last started
+    cursorAtStart: 0,
+    looping: false,
+    loopStart: 0,
+    loopEnd: 4000,
+    activeOffs: new Map(),    // id -> { offMs, pitch }
+  },
+  recording: false,
+  recordingNotes: new Map(),  // pitch -> in-progress note (start time, captured note obj)
+  playbackActive: new Set(),  // pitches the transport currently sounds (don't record)
+  mouse: {
+    mode: 'idle',             // idle | draw | move | resize | marquee | loopL | loopR | scrollPan | rulerPending | rulerLoop
+    startX: 0, startY: 0,
+    lastX: 0, lastY: 0,
+    drawNoteId: null,
+    dragOffsetMs: 0,
+    dragOffsetPitch: 0,
+    moveOriginals: null,      // map id -> {start, pitch} at drag start
+    movePivotId: null,        // id of the note whose pitch drives audition during move
+    resizeOriginalDur: 0,
+    rulerDownMs: 0,
+  },
+};
+
+const rollCanvas = document.getElementById('rollCanvas');
+const rollWrap = document.getElementById('rollCanvasWrap');
+const rctx = rollCanvas.getContext('2d');
+
+function rollResize() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = rollWrap.clientWidth;
+  const h = rollWrap.clientHeight;
+  rollCanvas.width = w * dpr;
+  rollCanvas.height = h * dpr;
+  rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', () => { rollResize(); rollRender(); });
+
+// ---------- Coordinate helpers ----------
+function rollW() { return rollWrap.clientWidth; }
+function rollH() { return rollWrap.clientHeight; }
+function msToX(ms) { return ROLL_LABEL_W + (ms - rollState.viewport.scrollX) * rollState.viewport.pxPerMs; }
+function xToMs(x) { return rollState.viewport.scrollX + (x - ROLL_LABEL_W) / rollState.viewport.pxPerMs; }
+function pitchToY(p) {
+  const v = rollState.viewport;
+  return ROLL_RULER_H + (ROLL_PITCH_HIGH - p - v.scrollY) * v.rowHeight;
+}
+function yToPitch(y) {
+  const v = rollState.viewport;
+  return Math.floor(ROLL_PITCH_HIGH - v.scrollY - (y - ROLL_RULER_H) / v.rowHeight + 1);
+}
+function visiblePitchRange() {
+  const top = yToPitch(ROLL_RULER_H);
+  const bot = yToPitch(rollH());
+  return [Math.max(ROLL_PITCH_LOW, bot - 1), Math.min(ROLL_PITCH_HIGH, top + 1)];
+}
+function visibleMsRange() {
+  return [xToMs(ROLL_LABEL_W), xToMs(rollW())];
+}
+function isBlackKey(p) { return [1,3,6,8,10].includes(p % 12); }
+function pitchName(p) {
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  return names[p % 12] + (Math.floor(p / 12) - 1);
+}
+
+// ---------- Render ----------
+let rollRenderQueued = false;
+function rollRender() {
+  if (rollRenderQueued) return;
+  rollRenderQueued = true;
+  requestAnimationFrame(() => {
+    rollRenderQueued = false;
+    rollDraw();
+  });
+}
+function rollDraw() {
+  const w = rollW(), h = rollH();
+  const v = rollState.viewport;
+  rctx.fillStyle = '#0e0e14';
+  rctx.fillRect(0, 0, w, h);
+
+  // Row stripes (black/white key bands).
+  const [pLo, pHi] = visiblePitchRange();
+  for (let p = pLo; p <= pHi; p++) {
+    const y = pitchToY(p);
+    rctx.fillStyle = isBlackKey(p) ? '#15151c' : '#1c1c25';
+    rctx.fillRect(ROLL_LABEL_W, y, w - ROLL_LABEL_W, v.rowHeight);
+    if (p % 12 === 0) {
+      rctx.fillStyle = '#222230';
+      rctx.fillRect(ROLL_LABEL_W, y + v.rowHeight - 1, w - ROLL_LABEL_W, 1);
+    }
+  }
+
+  // Hovered row highlight.
+  if (rollState.hoveredPitch != null) {
+    const hp = rollState.hoveredPitch;
+    if (hp >= pLo && hp <= pHi) {
+      const y = pitchToY(hp);
+      rctx.fillStyle = 'rgba(255,107,53,0.10)';
+      rctx.fillRect(ROLL_LABEL_W, y, w - ROLL_LABEL_W, v.rowHeight);
+    }
+  }
+
+  // Beat grid (assumes 4/4).
+  const beatMs = 60000 / rollState.bpm;
+  const subdivMs = beatMs / 4; // 1/16
+  const [msLo, msHi] = visibleMsRange();
+  const firstSub = Math.floor(msLo / subdivMs) * subdivMs;
+  for (let m = firstSub; m <= msHi; m += subdivMs) {
+    const x = msToX(m);
+    const isBeat = Math.abs(m % beatMs) < 0.01 || Math.abs(m % beatMs - beatMs) < 0.01;
+    const isBar = Math.abs(m % (beatMs * 4)) < 0.01 || Math.abs(m % (beatMs * 4) - beatMs * 4) < 0.01;
+    rctx.strokeStyle = isBar ? '#3a3a48' : (isBeat ? '#2a2a35' : '#1f1f28');
+    rctx.lineWidth = 1;
+    rctx.beginPath();
+    rctx.moveTo(x + 0.5, ROLL_RULER_H);
+    rctx.lineTo(x + 0.5, h);
+    rctx.stroke();
+  }
+
+  // Loop region.
+  const t = rollState.transport;
+  if (t.looping) {
+    const lx = msToX(t.loopStart);
+    const rx = msToX(t.loopEnd);
+    rctx.fillStyle = 'rgba(255,209,102,0.06)';
+    rctx.fillRect(lx, ROLL_RULER_H, rx - lx, h - ROLL_RULER_H);
+    rctx.strokeStyle = '#ffd166';
+    rctx.lineWidth = 1;
+    rctx.beginPath();
+    rctx.moveTo(lx + 0.5, ROLL_RULER_H); rctx.lineTo(lx + 0.5, h);
+    rctx.moveTo(rx + 0.5, ROLL_RULER_H); rctx.lineTo(rx + 0.5, h);
+    rctx.stroke();
+  }
+
+  // Notes.
+  for (const n of rollState.notes) {
+    const x = msToX(n.start);
+    const x2 = msToX(n.start + n.dur);
+    const y = pitchToY(n.pitch);
+    if (x2 < ROLL_LABEL_W || x > w || y < ROLL_RULER_H || y > h) continue;
+    const selected = rollState.selection.has(n.id);
+    const sounding = rollState.playbackActive.has(n.pitch) &&
+      t.playing && t.cursorMs >= n.start && t.cursorMs < n.start + n.dur;
+    rctx.fillStyle = selected
+      ? '#ffd166'
+      : (sounding ? '#ff8a4a' : '#ff6b35');
+    rctx.fillRect(Math.max(ROLL_LABEL_W, x), y + 1, Math.max(2, x2 - x), v.rowHeight - 2);
+    rctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    rctx.strokeRect(Math.max(ROLL_LABEL_W, x) + 0.5, y + 1.5, Math.max(2, x2 - x) - 1, v.rowHeight - 3);
+  }
+
+  // Live-incoming notes (from broadcast) drawn as floating bars at the cursor / right edge.
+  if (lastSounding && lastSounding.length) {
+    for (const p of lastSounding) {
+      if (rollState.playbackActive.has(p)) continue; // already drawn as a note
+      const y = pitchToY(p);
+      if (y < ROLL_RULER_H - v.rowHeight || y > h) continue;
+      // Show at the transport cursor if playing, else at right edge.
+      const xCenter = t.playing ? msToX(t.cursorMs) : w - 20;
+      rctx.fillStyle = 'rgba(124,217,146,0.85)'; // green
+      rctx.fillRect(xCenter - 6, y + 1, 12, v.rowHeight - 2);
+    }
+  }
+
+  // Playhead line (drawn under the ruler triangle, above notes).
+  if (t.playing || t.cursorMs > 0) {
+    const cx = msToX(t.cursorMs);
+    if (cx >= ROLL_LABEL_W && cx <= w) {
+      rctx.strokeStyle = '#7cd992';
+      rctx.lineWidth = 1;
+      rctx.beginPath();
+      rctx.moveTo(cx + 0.5, ROLL_RULER_H);
+      rctx.lineTo(cx + 0.5, h);
+      rctx.stroke();
+    }
+  }
+
+  // Marquee selection box.
+  if (rollState.mouse.mode === 'marquee') {
+    const m = rollState.mouse;
+    const x1 = Math.min(m.startX, m.lastX), x2 = Math.max(m.startX, m.lastX);
+    const y1 = Math.min(m.startY, m.lastY), y2 = Math.max(m.startY, m.lastY);
+    rctx.fillStyle = 'rgba(255,209,102,0.1)';
+    rctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+    rctx.strokeStyle = '#ffd166';
+    rctx.strokeRect(x1 + 0.5, y1 + 0.5, x2 - x1, y2 - y1);
+  }
+
+  // Pitch label gutter — show every note name.
+  rctx.fillStyle = '#14141a';
+  rctx.fillRect(0, 0, ROLL_LABEL_W, h);
+  // Highlight the hovered pitch label.
+  if (rollState.hoveredPitch != null) {
+    const hp = rollState.hoveredPitch;
+    if (hp >= pLo && hp <= pHi) {
+      const y = pitchToY(hp);
+      rctx.fillStyle = 'rgba(255,107,53,0.18)';
+      rctx.fillRect(0, y, ROLL_LABEL_W, v.rowHeight);
+    }
+  }
+  rctx.font = '10px monospace';
+  rctx.textBaseline = 'middle';
+  for (let p = pLo; p <= pHi; p++) {
+    const y = pitchToY(p) + v.rowHeight / 2;
+    const isC = (p % 12 === 0);
+    const isHover = (rollState.hoveredPitch === p);
+    rctx.fillStyle = isHover ? '#ffd166' : (isC ? '#ff8a4a' : (isBlackKey(p) ? '#4a4a5a' : '#76768a'));
+    rctx.fillText(pitchName(p), 4, y);
+  }
+
+  // Ruler (bigger now).
+  rctx.fillStyle = '#14141a';
+  rctx.fillRect(ROLL_LABEL_W, 0, w - ROLL_LABEL_W, ROLL_RULER_H);
+  // Beat ticks in the ruler.
+  for (let m = firstSub; m <= msHi; m += subdivMs) {
+    const x = msToX(m);
+    if (x < ROLL_LABEL_W) continue;
+    const onBar = Math.abs(m % (beatMs * 4)) < 0.01 || Math.abs(m % (beatMs * 4) - beatMs * 4) < 0.01;
+    const onBeat = Math.abs(m % beatMs) < 0.01 || Math.abs(m % beatMs - beatMs) < 0.01;
+    if (!onBeat) continue;
+    rctx.strokeStyle = onBar ? '#76768a' : '#3a3a48';
+    rctx.lineWidth = 1;
+    const tickLen = onBar ? 10 : 5;
+    rctx.beginPath();
+    rctx.moveTo(x + 0.5, ROLL_RULER_H);
+    rctx.lineTo(x + 0.5, ROLL_RULER_H - tickLen);
+    rctx.stroke();
+  }
+  // Bar numbers.
+  rctx.fillStyle = '#a0a0b8';
+  rctx.font = '11px monospace';
+  rctx.textBaseline = 'top';
+  const barMs = beatMs * 4;
+  const firstBar = Math.floor(msLo / barMs) * barMs;
+  for (let m = firstBar; m <= msHi; m += barMs) {
+    const x = msToX(m);
+    if (x < ROLL_LABEL_W) continue;
+    const bar = Math.round(m / barMs) + 1;
+    rctx.fillText(bar.toString(), x + 4, 3);
+  }
+  // Loop region tinted band in ruler too.
+  if (t.looping) {
+    const lx = msToX(t.loopStart);
+    const rx = msToX(t.loopEnd);
+    rctx.fillStyle = 'rgba(255,209,102,0.25)';
+    rctx.fillRect(Math.max(ROLL_LABEL_W, lx), 0, rx - Math.max(ROLL_LABEL_W, lx), ROLL_RULER_H);
+  }
+  rctx.fillStyle = '#2a2a35';
+  rctx.fillRect(0, ROLL_RULER_H - 1, w, 1);
+  rctx.fillRect(ROLL_LABEL_W - 1, 0, 1, h);
+
+  // Playhead triangle in the ruler, pointing down to the line.
+  if (t.playing || t.cursorMs > 0) {
+    const cx = msToX(t.cursorMs);
+    if (cx >= ROLL_LABEL_W && cx <= w) {
+      rctx.fillStyle = '#7cd992';
+      rctx.beginPath();
+      rctx.moveTo(cx, ROLL_RULER_H - 1);
+      rctx.lineTo(cx - 6, ROLL_RULER_H - 11);
+      rctx.lineTo(cx + 6, ROLL_RULER_H - 11);
+      rctx.closePath();
+      rctx.fill();
+      rctx.strokeStyle = '#16161c';
+      rctx.lineWidth = 1;
+      rctx.stroke();
+    }
+  }
+
+  // Recording indicator.
+  if (rollState.recording) {
+    rctx.fillStyle = 'rgba(255,80,80,0.9)';
+    rctx.beginPath();
+    rctx.arc(w - 14, ROLL_RULER_H / 2, 5, 0, Math.PI * 2);
+    rctx.fill();
+  }
+}
+
+// ---------- Hit testing ----------
+function noteAt(x, y) {
+  for (let i = rollState.notes.length - 1; i >= 0; i--) {
+    const n = rollState.notes[i];
+    const nx = msToX(n.start);
+    const nx2 = msToX(n.start + n.dur);
+    const ny = pitchToY(n.pitch);
+    if (x >= Math.max(ROLL_LABEL_W, nx) && x <= nx2 && y >= ny + 1 && y <= ny + rollState.viewport.rowHeight - 1) {
+      const onRightEdge = x >= nx2 - ROLL_RESIZE_EDGE;
+      return { note: n, edge: onRightEdge ? 'right' : null };
+    }
+  }
+  return null;
+}
+function loopHandleAt(x, y) {
+  if (!rollState.transport.looping) return null;
+  if (y > ROLL_RULER_H) return null;
+  const lx = msToX(rollState.transport.loopStart);
+  const rx = msToX(rollState.transport.loopEnd);
+  if (Math.abs(x - lx) <= ROLL_LOOP_HANDLE) return 'L';
+  if (Math.abs(x - rx) <= ROLL_LOOP_HANDLE) return 'R';
+  return null;
+}
+
+// ---------- Mouse ----------
+rollCanvas.addEventListener('mousedown', (e) => {
+  const rect = rollCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const m = rollState.mouse;
+  m.startX = x; m.startY = y; m.lastX = x; m.lastY = y;
+
+  // Middle-click pan, or alt-drag pan.
+  if (e.button === 1 || e.altKey) {
+    m.mode = 'scrollPan';
+    return;
+  }
+  if (e.button !== 0) return;
+
+  // Ruler: drag handles take priority, then drag-to-set-loop, then click-to-set-cursor.
+  if (y < ROLL_RULER_H) {
+    const handle = loopHandleAt(x, y);
+    if (handle) {
+      rollSnapshot();
+      m.mode = handle === 'L' ? 'loopL' : 'loopR';
+      return;
+    }
+    m.mode = 'rulerPending';
+    m.rulerDownMs = Math.max(0, xToMs(x));
+    return;
+  }
+
+  const hit = noteAt(x, y);
+  if (hit) {
+    const id = hit.note.id;
+    if (!rollState.selection.has(id)) {
+      if (!e.shiftKey) rollState.selection.clear();
+      rollState.selection.add(id);
+    } else if (e.shiftKey) {
+      rollState.selection.delete(id);
+    }
+    if (hit.edge === 'right') {
+      rollSnapshot();
+      m.mode = 'resize';
+      m.resizeOriginalDur = hit.note.dur;
+    } else {
+      rollSnapshot();
+      m.mode = 'move';
+      m.dragOffsetMs = xToMs(x) - hit.note.start;
+      m.dragOffsetPitch = yToPitch(y) - hit.note.pitch;
+      m.moveOriginals = new Map();
+      m.movePivotId = hit.note.id;
+      for (const sid of rollState.selection) {
+        const n = rollState.notes.find(nn => nn.id === sid);
+        if (n) m.moveOriginals.set(sid, { start: n.start, pitch: n.pitch });
+      }
+      rollAuditionOn(hit.note.pitch);
+    }
+    rollRender();
+    return;
+  }
+
+  // Empty space: draw or marquee.
+  if (e.shiftKey) {
+    m.mode = 'marquee';
+  } else {
+    rollSnapshot();
+    const startMs = Math.max(0, snapMs(xToMs(x)));
+    const pitch = clampPitch(yToPitch(y));
+    const id = rollState.nextId++;
+    const note = { id, pitch, start: startMs, dur: snapMs(60000 / rollState.bpm / 4), vel: 0.8, ch: 0 };
+    rollState.notes.push(note);
+    rollState.selection.clear();
+    rollState.selection.add(id);
+    m.mode = 'draw';
+    m.drawNoteId = id;
+    rollAuditionOn(pitch);
+  }
+  rollRender();
+});
+rollCanvas.addEventListener('mousemove', (e) => {
+  const rect = rollCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const m = rollState.mouse;
+  const dx = x - m.lastX, dy = y - m.lastY;
+  m.lastX = x; m.lastY = y;
+
+  // Track hovered pitch for row highlight.
+  const newHover = (y > ROLL_RULER_H && x > ROLL_LABEL_W) ? clampPitch(yToPitch(y)) : null;
+  if (newHover !== rollState.hoveredPitch) {
+    rollState.hoveredPitch = newHover;
+    rollRender();
+  }
+
+  // Cursor feedback when idle.
+  if (m.mode === 'idle') {
+    const hit = noteAt(x, y);
+    rollCanvas.style.cursor =
+      hit ? (hit.edge === 'right' ? 'ew-resize' : 'move') :
+      (y < ROLL_RULER_H && loopHandleAt(x, y) ? 'ew-resize' : (y < ROLL_RULER_H ? 'pointer' : 'crosshair'));
+    return;
+  }
+
+  // Ruler: click vs drag detection.
+  if (m.mode === 'rulerPending') {
+    if (Math.abs(x - m.startX) > ROLL_DRAG_THRESHOLD) {
+      rollSnapshot();
+      rollState.transport.looping = true;
+      m.mode = 'rulerLoop';
+    } else {
+      return;
+    }
+  }
+  if (m.mode === 'rulerLoop') {
+    const a = m.rulerDownMs;
+    const b = Math.max(0, xToMs(x));
+    const lo = snapMs(Math.min(a, b));
+    const hi = snapMs(Math.max(a, b));
+    rollState.transport.loopStart = Math.max(0, lo);
+    rollState.transport.loopEnd = Math.max(rollState.transport.loopStart + 100, hi);
+    rollRender();
+    return;
+  }
+
+  if (m.mode === 'scrollPan') {
+    rollState.viewport.scrollX -= dx / rollState.viewport.pxPerMs;
+    rollState.viewport.scrollY += dy / rollState.viewport.rowHeight;
+    clampViewport();
+    rollRender();
+    return;
+  }
+  if (m.mode === 'draw') {
+    const n = rollState.notes.find(nn => nn.id === m.drawNoteId);
+    if (n) {
+      const endMs = Math.max(n.start + 20, snapMs(xToMs(x)));
+      n.dur = endMs - n.start;
+      rollRender();
+    }
+    return;
+  }
+  if (m.mode === 'move') {
+    const dMs = xToMs(x) - xToMs(m.startX);
+    const dPitch = yToPitch(y) - yToPitch(m.startY);
+    for (const [id, orig] of m.moveOriginals.entries()) {
+      const n = rollState.notes.find(nn => nn.id === id);
+      if (n) {
+        n.start = Math.max(0, snapMs(orig.start + dMs));
+        n.pitch = clampPitch(orig.pitch + dPitch);
+      }
+    }
+    // Re-audition if the clicked note's pitch changed.
+    const pivot = rollState.notes.find(nn => nn.id === m.movePivotId);
+    if (pivot && pivot.pitch !== rollState.auditionPitch) {
+      rollAuditionOn(pivot.pitch);
+    }
+    rollRender();
+    return;
+  }
+  if (m.mode === 'resize') {
+    for (const id of rollState.selection) {
+      const n = rollState.notes.find(nn => nn.id === id);
+      if (n) {
+        const endMs = Math.max(n.start + 20, snapMs(xToMs(x)));
+        n.dur = endMs - n.start;
+      }
+    }
+    rollRender();
+    return;
+  }
+  if (m.mode === 'marquee') {
+    rollRender();
+    return;
+  }
+  if (m.mode === 'loopL') {
+    rollState.transport.loopStart = Math.max(0, Math.min(rollState.transport.loopEnd - 100, snapMs(xToMs(x))));
+    rollRender();
+    return;
+  }
+  if (m.mode === 'loopR') {
+    rollState.transport.loopEnd = Math.max(rollState.transport.loopStart + 100, snapMs(xToMs(x)));
+    rollRender();
+    return;
+  }
+});
+rollCanvas.addEventListener('mouseup', (e) => {
+  const m = rollState.mouse;
+  if (m.mode === 'marquee') {
+    const rect = rollCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const x1 = Math.min(m.startX, x), x2 = Math.max(m.startX, x);
+    const y1 = Math.min(m.startY, y), y2 = Math.max(m.startY, y);
+    if (!e.shiftKey) rollState.selection.clear();
+    for (const n of rollState.notes) {
+      const nx = msToX(n.start), nx2 = msToX(n.start + n.dur);
+      const ny = pitchToY(n.pitch);
+      if (nx2 >= x1 && nx <= x2 && ny + rollState.viewport.rowHeight >= y1 && ny <= y2) {
+        rollState.selection.add(n.id);
+      }
+    }
+  }
+  if (m.mode === 'rulerPending') {
+    // Click without drag — move the playback cursor.
+    rollState.transport.cursorMs = m.rulerDownMs;
+  }
+  rollAuditionOff();
+  m.mode = 'idle';
+  m.drawNoteId = null;
+  m.moveOriginals = null;
+  m.movePivotId = null;
+  rollRender();
+});
+rollCanvas.addEventListener('mouseleave', () => {
+  if (rollState.hoveredPitch != null) {
+    rollState.hoveredPitch = null;
+    rollRender();
+  }
+});
+
+// Wheel: vertical (pitch) by default, shift=horizontal (time), ctrl=zoom (anchored to left edge).
+rollCanvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) {
+    // Anchor zoom to the leftmost visible ms — scrollX stays put.
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    rollState.viewport.pxPerMs = Math.max(0.02, Math.min(2, rollState.viewport.pxPerMs * factor));
+    document.getElementById('rollZoom').value = rollState.viewport.pxPerMs.toFixed(3);
+  } else if (e.shiftKey) {
+    rollState.viewport.scrollX += e.deltaY / rollState.viewport.pxPerMs;
+  } else {
+    rollState.viewport.scrollY += e.deltaY / rollState.viewport.rowHeight / 4;
+  }
+  clampViewport();
+  rollRender();
+}, { passive: false });
+
+// Roll keydown runs in CAPTURE phase so it sees the event before the synth's
+// document-level keydown handler. When it handles a key, it stops propagation
+// so the synth keyboard doesn't also fire a note for the same press.
+window.addEventListener('keydown', (e) => {
+  if (document.getElementById('roll-view').hidden) return;
+  if (e.target.tagName === 'INPUT') return;
+  let handled = false;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (rollState.selection.size) {
+      rollSnapshot();
+      rollState.notes = rollState.notes.filter(n => !rollState.selection.has(n.id));
+      rollState.selection.clear();
+      rollRender();
+    }
+    handled = true;
+  } else if (e.key === ' ') {
+    rollTogglePlay();
+    handled = true;
+  } else if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+    rollUndo();
+    handled = true;
+  } else if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) {
+    rollState.selection = new Set(rollState.notes.map(n => n.id));
+    rollRender();
+    handled = true;
+  } else if (e.key === 'Home') {
+    rollHome();
+    handled = true;
+  }
+  if (handled) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+}, true);
+
+function clampPitch(p) { return Math.max(ROLL_PITCH_LOW, Math.min(ROLL_PITCH_HIGH, p)); }
+function clampViewport() {
+  const v = rollState.viewport;
+  if (v.scrollX < 0) v.scrollX = 0;
+  const maxScrollY = (ROLL_PITCH_HIGH - ROLL_PITCH_LOW + 1) - (rollH() - ROLL_RULER_H) / v.rowHeight;
+  if (v.scrollY > maxScrollY) v.scrollY = Math.max(0, maxScrollY);
+  if (v.scrollY < 0) v.scrollY = 0;
+}
+function snapMs(ms) {
+  // Snap to 1/32 for fine but reasonable resolution.
+  const subdiv = (60000 / rollState.bpm) / 8;
+  return Math.round(ms / subdiv) * subdiv;
+}
+
+// ---------- Transport ----------
+function rollTogglePlay() {
+  const t = rollState.transport;
+  if (t.playing) { rollStop(); return; }
+  // If we have a loop region and the cursor is before it, snap to loop start.
+  if (t.looping && t.cursorMs < t.loopStart) {
+    t.cursorMs = t.loopStart;
+  }
+  t.playing = true;
+  t.startWall = performance.now();
+  t.cursorAtStart = t.cursorMs;
+  document.getElementById('rollPlay').textContent = '❚❚ Pause';
+  document.getElementById('rollPlay').classList.add('on');
+}
+function rollStop() {
+  const t = rollState.transport;
+  t.playing = false;
+  // Release any still-sounding playback notes.
+  for (const { pitch } of t.activeOffs.values()) {
+    send({ type: 'noteOff', note: pitch });
+  }
+  t.activeOffs.clear();
+  rollState.playbackActive.clear();
+  document.getElementById('rollPlay').textContent = '▶ Play';
+  document.getElementById('rollPlay').classList.remove('on');
+  rollRender();
+}
+function rollClearLoop() {
+  if (!rollState.transport.looping) return;
+  rollSnapshot();
+  rollState.transport.looping = false;
+  rollRender();
+}
+function rollHome() {
+  const t = rollState.transport;
+  // Kill any playback notes that are sounding so they don't hang past the jump.
+  for (const { pitch } of t.activeOffs.values()) {
+    send({ type: 'noteOff', note: pitch });
+  }
+  t.activeOffs.clear();
+  rollState.playbackActive.clear();
+  t.cursorMs = 0;
+  if (t.playing) {
+    t.cursorAtStart = 0;
+    t.startWall = performance.now();
+  }
+  rollRender();
+}
+function rollToggleRec() {
+  rollState.recording = !rollState.recording;
+  document.getElementById('rollRec').classList.toggle('on', rollState.recording);
+  rollRender();
+}
+function rollSetBpm(v) { rollState.bpm = Math.max(20, Math.min(300, +v || 120)); rollRender(); }
+function rollSetZoom(v) {
+  rollState.viewport.pxPerMs = Math.max(0.02, Math.min(2, +v || 0.2));
+  rollRender();
+}
+function rollClear() {
+  if (!confirm('Clear all notes?')) return;
+  rollSnapshot();
+  rollState.notes = [];
+  rollState.selection.clear();
+  rollRender();
+}
+function rollQuantize() {
+  const subdiv = (60000 / rollState.bpm) / 4; // 1/16
+  rollSnapshot();
+  for (const n of rollState.notes) {
+    n.start = Math.round(n.start / subdiv) * subdiv;
+  }
+  rollRender();
+}
+
+// ---------- Audition (sound the note while drawing/moving) ----------
+// Uses send() directly to bypass the noteOn/noteOff record-capture wrappers.
+function rollAuditionOn(pitch) {
+  if (rollState.auditionPitch === pitch) return;
+  if (rollState.auditionPitch !== null) {
+    send({ type: 'noteOff', note: rollState.auditionPitch });
+  }
+  rollState.auditionPitch = pitch;
+  send({ type: 'noteOn', note: pitch, velocity: 0.75 });
+}
+function rollAuditionOff() {
+  if (rollState.auditionPitch !== null) {
+    send({ type: 'noteOff', note: rollState.auditionPitch });
+    rollState.auditionPitch = null;
+  }
+}
+
+// ---------- Undo ----------
+function rollSnapshot() {
+  const snap = JSON.stringify({
+    notes: rollState.notes,
+    looping: rollState.transport.looping,
+    loopStart: rollState.transport.loopStart,
+    loopEnd: rollState.transport.loopEnd,
+    nextId: rollState.nextId,
+  });
+  rollState.undo.push(snap);
+  if (rollState.undo.length > ROLL_UNDO_LIMIT) rollState.undo.shift();
+}
+function rollUndo() {
+  const snap = rollState.undo.pop();
+  if (!snap) return;
+  const s = JSON.parse(snap);
+  rollState.notes = s.notes;
+  rollState.transport.looping = s.looping;
+  rollState.transport.loopStart = s.loopStart;
+  rollState.transport.loopEnd = s.loopEnd;
+  rollState.nextId = s.nextId;
+  rollState.selection.clear();
+  rollRender();
+}
+
+const TRANSPORT_TICK_MS = 8;
+setInterval(() => {
+  const t = rollState.transport;
+  if (t.playing) {
+    const wall = performance.now();
+    let cursor = t.cursorAtStart + (wall - t.startWall);
+    if (t.looping && cursor >= t.loopEnd) {
+      // Loop wrap: silence any held notes, reset start.
+      for (const { pitch } of t.activeOffs.values()) {
+        send({ type: 'noteOff', note: pitch });
+      }
+      t.activeOffs.clear();
+      rollState.playbackActive.clear();
+      t.cursorAtStart = t.loopStart;
+      t.startWall = wall;
+      cursor = t.loopStart;
+    }
+    t.cursorMs = cursor;
+    // Schedule notes whose start is within the next tick window.
+    const horizon = cursor + TRANSPORT_TICK_MS + 2;
+    for (const n of rollState.notes) {
+      if (n.start <= cursor && n.start + n.dur > cursor && !t.activeOffs.has(n.id)) {
+        // Edge-case: skipped over briefly; fire now if duration still remains.
+        const offMs = n.start + n.dur;
+        send({ type: 'noteOn', note: n.pitch, velocity: n.vel });
+        t.activeOffs.set(n.id, { offMs, pitch: n.pitch });
+        rollState.playbackActive.add(n.pitch);
+      } else if (n.start > cursor && n.start < horizon && !t.activeOffs.has(n.id)) {
+        // Will trigger within window; fire at next tick (acceptable latency).
+        send({ type: 'noteOn', note: n.pitch, velocity: n.vel });
+        t.activeOffs.set(n.id, { offMs: n.start + n.dur, pitch: n.pitch });
+        rollState.playbackActive.add(n.pitch);
+      }
+    }
+    // Fire offs that are due.
+    for (const [id, info] of [...t.activeOffs.entries()]) {
+      if (info.offMs <= cursor) {
+        send({ type: 'noteOff', note: info.pitch });
+        t.activeOffs.delete(id);
+        rollState.playbackActive.delete(info.pitch);
+      }
+    }
+    if (!document.getElementById('roll-view').hidden) rollRender();
+  }
+}, TRANSPORT_TICK_MS);
+
+// ---------- Recording capture (called from noteOn/noteOff wrappers) ----------
+function rollCaptureNoteOn(pitch, vel) {
+  const t = rollState.transport;
+  const startMs = t.playing ? t.cursorMs : (rollState.recordingNotes.size === 0 ? 0 : performance.now() - rollRecBase);
+  if (!t.playing && rollState.recordingNotes.size === 0) rollRecBase = performance.now();
+  const note = { id: rollState.nextId++, pitch, start: snapMs(startMs), dur: 200, vel, ch: 0 };
+  rollState.notes.push(note);
+  rollState.recordingNotes.set(pitch, note);
+  rollRender();
+}
+function rollCaptureNoteOff(pitch) {
+  const t = rollState.transport;
+  const note = rollState.recordingNotes.get(pitch);
+  if (!note) return;
+  const endMs = t.playing ? t.cursorMs : performance.now() - rollRecBase;
+  note.dur = Math.max(50, snapMs(endMs - note.start));
+  rollState.recordingNotes.delete(pitch);
+  rollRender();
+}
+let rollRecBase = 0;
+
+// ---------- JSONL save/load ----------
+function rollSave() {
+  // Emit a minimal session header + paired note_on/off events sorted by time.
+  const events = [];
+  events.push({ t: 0, type: 'session_start', v: 1, wall_unix: Math.floor(Date.now() / 1000), patch: null, source: 'roll' });
+  const sorted = [...rollState.notes].sort((a, b) => a.start - b.start);
+  for (const n of sorted) {
+    events.push({ t: Math.round(n.start), type: 'note_on', id: n.id, ch: n.ch || 0, note: n.pitch, vel: n.vel });
+    events.push({ t: Math.round(n.start + n.dur), type: 'note_off', id: n.id, ch: n.ch || 0, note: n.pitch });
+  }
+  events.sort((a, b) => a.t - b.t);
+  const lines = events.map(e => JSON.stringify(e)).join('\n');
+  const blob = new Blob([lines + '\n'], { type: 'application/jsonl' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `roll_${Date.now()}.jsonl`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function rollLoad(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result || '');
+    const ons = new Map(); // id -> {pitch, start, vel, ch}
+    const notes = [];
+    let maxId = 0;
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let e;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e.type === 'note_on') {
+        ons.set(e.id, { pitch: e.note, start: e.t, vel: e.vel ?? 0.8, ch: e.ch ?? 0 });
+        if (e.id > maxId) maxId = e.id;
+      } else if (e.type === 'note_off') {
+        const on = ons.get(e.id);
+        if (on) {
+          notes.push({ id: e.id, pitch: on.pitch, start: on.start, dur: Math.max(20, e.t - on.start), vel: on.vel, ch: on.ch });
+          ons.delete(e.id);
+        }
+      }
+    }
+    // Any unmatched on: give a default 200ms duration.
+    for (const [id, on] of ons.entries()) {
+      notes.push({ id, pitch: on.pitch, start: on.start, dur: 200, vel: on.vel, ch: on.ch });
+    }
+    rollSnapshot();
+    rollState.notes = notes;
+    rollState.nextId = Math.max(maxId + 1, 1);
+    rollState.selection.clear();
+    rollRender();
+  };
+  reader.readAsText(file);
+  ev.target.value = ''; // allow re-load of same file
+}
+
+// ---------- Eat all right-clicks (page-wide) ----------
+window.addEventListener('contextmenu', (e) => e.preventDefault());
+
 // ---------- Boot ----------
 buildUI();
 buildKeyboard();
 refreshOctaveDisplay();
 connect();
+// Initial roll render so it's ready when the user clicks the tab.
+requestAnimationFrame(() => { rollResize(); rollRender(); });
 </script>
 </body>
 </html>

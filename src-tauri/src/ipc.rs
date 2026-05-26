@@ -3,7 +3,7 @@ use crate::params::{Params, Patch};
 use crate::performance::Performer;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -11,6 +11,17 @@ pub struct AppState {
     pub performer: Arc<Performer>,
     pub patches_dir: PathBuf,
     pub history: History,
+    /// Authoritative patch lineage: name of the most-recently loaded/saved
+    /// patch, plus whether any Param has fired since that load (dirty).
+    /// Drives both the dropdown's startup selection and when the history
+    /// logger should emit a `patch_dirty` marker.
+    pub patch: Arc<Mutex<PatchState>>,
+}
+
+#[derive(Default, Debug)]
+pub struct PatchState {
+    pub name: Option<String>,
+    pub dirty: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -30,7 +41,7 @@ pub enum ClientMsg {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ServerMsg {
-    Patches { names: Vec<String> },
+    Patches { names: Vec<String>, current: Option<String> },
     State { patch: Patch },
     Ok,
     Error { message: String },
@@ -57,6 +68,15 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                 return ServerMsg::Error {
                     message: format!("Unknown param: {}", name),
                 };
+            }
+            // First param after a clean load: emit a dirty marker BEFORE the
+            // param event, so log readers see the transition first.
+            {
+                let mut ps = state.patch.lock().unwrap();
+                if !ps.dirty {
+                    state.history.patch_dirty(ps.name.as_deref());
+                    ps.dirty = true;
+                }
             }
             state.history.param(&name, value);
             let mut refresh = false;
@@ -91,6 +111,7 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                         state.params.apply_patch(&patch);
                         state.performer.all_off();
                         state.history.patch_load(&safe, patch.clone());
+                        *state.patch.lock().unwrap() = PatchState { name: Some(safe.clone()), dirty: false };
                         ServerMsg::State { patch }
                     }
                     Err(e) => ServerMsg::Error {
@@ -116,6 +137,7 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
                 Ok(json) => match std::fs::write(&path, json) {
                     Ok(_) => {
                         state.history.patch_save(&safe, patch);
+                        *state.patch.lock().unwrap() = PatchState { name: Some(safe.clone()), dirty: false };
                         ServerMsg::Ok
                     }
                     Err(e) => ServerMsg::Error {
@@ -139,6 +161,7 @@ pub fn handle_msg(msg: ClientMsg, state: &AppState) -> ServerMsg {
         }
         ClientMsg::ListPatches => ServerMsg::Patches {
             names: list_patches(&state.patches_dir),
+            current: state.patch.lock().unwrap().name.clone(),
         },
         ClientMsg::GetState => ServerMsg::State {
             patch: state.params.to_patch(),
@@ -167,6 +190,8 @@ fn list_patches(dir: &Path) -> Vec<String> {
             }
         }
     }
-    names.sort();
+    // Case-insensitive sort so MIXED case patches interleave naturally
+    // instead of producing two alphabetical ranks (all uppercase, then all lowercase).
+    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
     names
 }
